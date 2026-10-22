@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LPU5 Tactical</string>
+    <string name="title_activity_main">LPU5 Tactical</string>
+    <string name="package_name">com.lpu5.tactical</string>
+    <string name="custom_url_scheme">com.lpu5.tactical</string>
+</resources>

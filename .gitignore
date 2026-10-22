@@ -86,3 +86,7 @@ lpu5-ca.pem
 lpu5-ca-key.pem
 video_streams.json
 video_streams.json.tmp
+
+# Native EUD projects (Capacitor) – the generic 'main' rule above must not hide their sources
+!eud/android/app/src/main/
+!eud/dist/
