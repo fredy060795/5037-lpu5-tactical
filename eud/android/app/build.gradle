@@ -21,9 +21,10 @@ android {
     // keystore the release APK is signed with the debug key so it still
     // installs for testing – do not distribute such builds widely.
     def ksPath = System.getenv("LPU5_KEYSTORE_PATH")
+    def hasReleaseKeystore = ksPath != null && file(ksPath).exists()
     signingConfigs {
         release {
-            if (ksPath && file(ksPath).exists()) {
+            if (hasReleaseKeystore) {
                 storeFile file(ksPath)
                 storePassword System.getenv("LPU5_KEYSTORE_PASSWORD")
                 keyAlias System.getenv("LPU5_KEY_ALIAS")
@@ -33,7 +34,7 @@ android {
     }
     buildTypes {
         release {
-            signingConfig (ksPath && file(ksPath).exists()) ? signingConfigs.release : signingConfigs.debug
+            signingConfig = hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
