@@ -58,7 +58,8 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: eud/package-lock.json }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '21' }
-      - uses: android-actions/setup-android@v3
+      # The Android SDK is preinstalled on ubuntu-latest (ANDROID_HOME); Gradle
+      # fetches missing platform/build-tools packages itself.
       - run: npm ci
       - run: npm run build
       - run: npx cap sync android
