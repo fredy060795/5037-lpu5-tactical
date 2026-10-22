@@ -451,12 +451,23 @@ async def lifespan(application):
             _FEDERATION_SYNC_THREAD.start()
             logger.info("✅ Federation auto-sync worker started (interval=%ss)", fed_sync_interval)
 
+    if video_manager:
+        try:
+            video_manager.start_autostart()
+        except Exception as e:
+            logger.error("Video analytics autostart failed: %s", e)
+
     logger.info("Startup complete. DB files ensured.")
 
     yield
 
     # ---- Shutdown logic ----
     _SHUTDOWN_IN_PROGRESS.set()
+    if video_manager:
+        try:
+            video_manager.shutdown()
+        except Exception as e:
+            logger.error("Error stopping video analytics: %s", e)
     # Stop TAK receiver thread
     try:
         _stop_tak_receiver_thread()
@@ -11651,6 +11662,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 relay_handled = False
                 
                 if message_type == 'camera_frame':
+                    # Feed every relayed camera (EUD / stream page) into the
+                    # video analytics pipeline before the relay rate limiting.
+                    if video_manager:
+                        try:
+                            video_manager.feed_frame(
+                                str(data.get('streamId') or 'camera_main'),
+                                data.get('frame') or '',
+                                data.get('meta') if isinstance(data.get('meta'), dict) else None,
+                            )
+                        except Exception as _va_err:
+                            logger.debug("video analytics feed failed: %s", _va_err)
                     # Server-side rate limiting: skip frames that arrive too fast to prevent
                     # event loop starvation which would block mobile HTTPS connections.
                     now = time.monotonic()
@@ -13793,6 +13815,96 @@ def _federation_auto_handshake(peer_url: str, peer_server_id: str):
 
 
 # -------------------------
+# Video analytics (YOLOv8) – see video_analytics.py
+# -------------------------
+def _video_marker_sink(marker: Dict) -> None:
+    """Upsert a detection marker and forward it like a user-created marker
+    (WebSocket broadcast + CoT to ATAK/WinTAK)."""
+    db = SessionLocal()
+    try:
+        existing = db.query(MapMarker).filter(MapMarker.id == marker["id"]).first()
+        if existing:
+            existing.lat = marker["lat"]
+            existing.lng = marker["lng"]
+            existing.name = marker["name"]
+            existing.description = marker.get("description")
+            existing.type = marker.get("type", "unknown")
+            existing.data = marker.get("data") or {}
+            event = "marker_updated"
+            row = existing
+        else:
+            row = MapMarker(
+                id=marker["id"], lat=marker["lat"], lng=marker["lng"], name=marker["name"],
+                description=marker.get("description"), type=marker.get("type", "unknown"),
+                color="#ff8800", icon="video_detection", created_by="video_analytics",
+                data=marker.get("data") or {},
+            )
+            db.add(row)
+            event = "marker_created"
+        db.commit()
+        marker_dict = {
+            "id": row.id, "lat": row.lat, "lng": row.lng, "name": row.name, "callsign": row.name,
+            "description": row.description, "type": row.type, "color": row.color, "icon": row.icon,
+            "created_by": row.created_by, "timestamp": datetime.now(timezone.utc).isoformat(), "data": row.data,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.warning("video marker upsert failed: %s", e)
+        return
+    finally:
+        db.close()
+    broadcast_websocket_update("markers", event, marker_dict)
+    if AUTONOMOUS_MODULES_AVAILABLE:
+        try:
+            cot_event = CoTProtocolHandler.marker_to_cot(marker_dict)
+            if cot_event:
+                cot_xml = cot_event.to_xml()
+                forward_cot_to_tak(cot_xml)
+                _forward_cot_multicast(cot_xml)
+                _forward_cot_to_tcp_clients(cot_xml)
+                _forward_cot_to_itak_bridge(cot_xml)
+        except Exception as e:
+            logger.debug("video marker CoT forward failed: %s", e)
+
+
+try:
+    import video_analytics as _video_analytics
+    video_manager = _video_analytics.VideoAnalyticsManager(
+        base_path, broadcast=broadcast_websocket_update, marker_sink=_video_marker_sink)
+    app.include_router(_video_analytics.create_router(video_manager, verify_token))
+    logger.info("Video analytics enabled (OpenCV=%s, YOLO=%s)",
+                _video_analytics.CV2_AVAILABLE, _video_analytics.YOLO_AVAILABLE)
+except Exception as _va_init_err:
+    video_manager = None
+    logger.warning("Video analytics unavailable: %s", _va_init_err)
+
+@app.get("/lpu5-ca.crt", include_in_schema=False)
+def download_ca_certificate():
+    """LPU5 root CA for installation on EUDs (Android: Settings > Security >
+    Install certificate > CA certificate; iOS: open in Safari, install the
+    profile, then enable full trust under General > About > Certificate Trust
+    Settings)."""
+    ca_path = os.path.join(base_path, "lpu5-ca.pem")
+    if not os.path.isfile(ca_path):
+        raise HTTPException(status_code=404, detail="No LPU5 CA – server runs without generated certificates")
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        with open(ca_path, "rb") as f:
+            der = x509.load_pem_x509_certificate(f.read()).public_bytes(serialization.Encoding.DER)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CA unreadable: {e}")
+    return Response(content=der, media_type="application/x-x509-ca-cert",
+                    headers={"Content-Disposition": 'attachment; filename="lpu5-ca.crt"'})
+
+# EUD field client (eud/, built with `npm run build`) – installable PWA for
+# iOS/Android browsers, same code as the Android/iOS apps.
+_eud_dist = os.path.join(base_path, "eud", "dist")
+if os.path.isdir(_eud_dist):
+    app.mount("/eud", StaticFiles(directory=_eud_dist, html=True), name="eud")
+    logger.info("EUD client mounted at /eud/")
+
+# -------------------------
 # Catch-all file fallback (MUST be the last route registered)
 # -------------------------
 @app.get("/{full_path:path}", include_in_schema=False)
@@ -13860,6 +13972,17 @@ if __name__ == "__main__":
     cert_file = os.path.join(base_path, "cert.pem")
     key_file = os.path.join(base_path, "key.pem")
     use_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
+
+    # Replace certificates from the old generator (self-signed leaf): phones
+    # cannot trust them, which blocks camera, Bluetooth and offline PWA.
+    if use_ssl:
+        try:
+            from generate_cert import is_legacy_self_signed
+            if is_legacy_self_signed(cert_file):
+                logger.info("Replacing legacy self-signed certificate with LPU5-CA signed certificate")
+                use_ssl = False
+        except Exception as e:
+            logger.debug("certificate check failed: %s", e)
     
     # AUTO-GENERATE SSL CERTIFICATES IF NOT PRESENT (HTTPS by default)
     if not use_ssl:
@@ -13869,7 +13992,7 @@ if __name__ == "__main__":
         try:
             # Try to import generate_cert module
             from generate_cert import generate_self_signed_cert
-            success = generate_self_signed_cert(cert_file, key_file, local_ip)
+            success = generate_self_signed_cert(cert_file, key_file, local_ip, all_detected_ips or [])
             if success:
                 use_ssl = True
                 logger.info("  *** SSL certificates generated successfully! ***")

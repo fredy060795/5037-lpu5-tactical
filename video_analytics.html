@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LPU5 Videoanalyse</title>
+<style>
+  :root { --bg:#0b0f0c; --panel:#121a14; --line:#2b3a2f; --text:#e6efe8; --muted:#8ea395; --accent:#6fdc8c; --danger:#ff6b6b; --warn:#f2c94c; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); background:#070a08; position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:16px; letter-spacing:.08em; margin:0; }
+  header a { color:var(--muted); }
+  .pill { padding:2px 8px; border-radius:4px; background:#1a241d; font-size:12px; }
+  .pill.ok { background:#164a26; color:#9dffb6; } .pill.bad { background:#4a1616; color:#ffb3b3; }
+  main { display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:6px 0; }
+  input, select { display:block; width:100%; margin-top:3px; padding:7px 9px; background:#0b100d; color:var(--text); border:1px solid var(--line); border-radius:6px; font:inherit; }
+  input[type=checkbox] { display:inline; width:auto; margin:0 6px 0 0; vertical-align:middle; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  button { font:inherit; color:var(--text); background:#1a241d; border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button.primary { background:#1f6b38; border-color:#2f9e55; } button.danger { background:#5a1c1c; border-color:#8d2b2b; }
+  .streams { display:grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap:12px; }
+  .card { background:#0e1410; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .card img { width:100%; aspect-ratio:16/9; object-fit:contain; background:#000; display:block; }
+  .card .body { padding:8px 10px; }
+  .card .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .err { color:var(--danger); font-size:12px; }
+  #log { max-height: 320px; overflow-y:auto; font-size:12px; }
+  #log div { padding:3px 0; border-bottom:1px solid #1a241d; }
+  #log .alert { color:var(--danger); font-weight:600; }
+  .hint { font-size:12px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LPU5 · VIDEOANALYSE</h1>
+  <span id="st-cv" class="pill">OpenCV</span>
+  <span id="st-yolo" class="pill">YOLO</span>
+  <span id="st-ws" class="pill bad">Live</span>
+  <span class="muted" id="st-run"></span>
+  <span style="flex:1"></span>
+  <a href="/index.html">← LPU5</a>
+</header>
+<main>
+  <div>
+    <section>
+      <h2 id="form-title">Neue Videoquelle</h2>
+      <form id="form">
+        <input type="hidden" name="id">
+        <label>Name<input name="name" required placeholder="z. B. Drohne 1 / Tor Nord"></label>
+        <label>Quelle<input name="source" required placeholder="rtsp://user:pass@10.0.0.5:554/stream  ·  http://…/mjpeg  ·  0 (Kamera)  ·  /pfad/video.mp4"></label>
+        <label><input type="checkbox" name="analytics" checked> KI-Analyse (YOLO)</label>
+        <div class="grid2">
+          <label>Modell<select name="model" id="model-sel"></select></label>
+          <label>Konfidenz<input name="confidence" type="number" step="0.05" min="0.05" max="0.95" value="0.4"></label>
+        </div>
+        <label>Klassen filtern (Komma, leer = alle)<input name="classes" placeholder="person, car, truck, drone"></label>
+        <label>Alarm bei Klassen<input name="alert_classes" placeholder="person, drone"></label>
+        <div class="grid2">
+          <label>Max. FPS Analyse<input name="max_fps" type="number" min="0.5" max="30" step="0.5" value="8"></label>
+          <label>Bildgröße (imgsz)<input name="imgsz" type="number" min="160" max="1920" step="32" value="640"></label>
+        </div>
+        <h2 style="margin-top:12px">Kamerastandort (für Lagekarte)</h2>
+        <div class="grid2">
+          <label>Breite<input name="lat" type="number" step="any"></label>
+          <label>Länge<input name="lng" type="number" step="any"></label>
+          <label>Blickrichtung °<input name="heading" type="number" step="any" min="0" max="360"></label>
+          <label>Bildwinkel (HFOV) °<input name="hfov" type="number" step="any" value="60"></label>
+          <label>Geschätzte Distanz m<input name="range_m" type="number" step="any" placeholder="leer = an Kamera"></label>
+          <label>Markertyp<select name="marker_type"><option value="unknown">Unbekannt</option><option value="hostile">Feind</option><option value="neutral">Neutral</option></select></label>
+        </div>
+        <label><input type="checkbox" name="create_markers"> Erkennungen als Marker auf Lagekarte / an ATAK senden</label>
+        <label><input type="checkbox" name="autostart" checked> Beim Serverstart starten</label>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="primary" type="submit" id="form-submit">Hinzufügen</button>
+          <button type="button" id="form-reset">Neu</button>
+        </div>
+        <div class="err" id="form-err"></div>
+      </form>
+      <p class="hint">Handy-Kameras: In der EUD-App unter „Video → Kamera teilen" freigeben – sie erscheinen hier automatisch als <i>relay-eud-…</i> und werden analysiert.</p>
+      <label><input type="checkbox" id="auto-relay"> Geteilte Kameras automatisch analysieren</label>
+    </section>
+    <section style="margin-top:16px">
+      <h2>Erkennungen (live)</h2>
+      <div id="log"><div class="muted">Warte auf Erkennungen…</div></div>
+    </section>
+  </div>
+  <section>
+    <h2>Streams</h2>
+    <div class="streams" id="streams"></div>
+  </section>
+</main>
+<script>
+(() => {
+  const token = localStorage.getItem('token') || localStorage.getItem('authToken') || '';
+  const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let streams = [];
+
+  if (!token) {
+    document.body.innerHTML = '<p style="padding:20px">Bitte zuerst in LPU5 anmelden. <a href="/landing.html">Zur Anmeldung</a></p>';
+    return;
+  }
+
+  async function api(path, opts = {}) {
+    const r = await fetch(path, { headers: H, ...opts });
+    if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} throw new Error(d || 'HTTP ' + r.status); }
+    return r.json();
+  }
+
+  async function loadStatus() {
+    const s = await api('/api/video/status');
+    $('#st-cv').className = 'pill ' + (s.opencv ? 'ok' : 'bad');
+    $('#st-yolo').className = 'pill ' + (s.yolo ? 'ok' : 'bad');
+    $('#st-yolo').title = s.yolo ? '' : 'pip install ultralytics';
+    $('#st-cv').title = s.opencv ? '' : 'pip install opencv-python-headless';
+    $('#st-run').textContent = `${s.running}/${s.streams} Streams aktiv`;
+    $('#model-sel').innerHTML = s.models.map((m) => `<option>${esc(m)}</option>`).join('');
+    $('#auto-relay').checked = !!s.settings.auto_relay_analytics;
+  }
+
+  function mjpegUrl(id) { return `/api/video/streams/${encodeURIComponent(id)}/mjpeg?token=${encodeURIComponent(token)}`; }
+
+  async function loadStreams() {
+    streams = (await api('/api/video/streams')).streams;
+    const box = $('#streams');
+    const existing = new Set([...box.children].map((c) => c.dataset.id));
+    for (const s of streams) {
+      let card = box.querySelector(`[data-id="${CSS.escape(s.id)}"]`);
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = s.id;
+        card.innerHTML = `<img alt=""><div class="body"></div>`;
+        box.appendChild(card);
+      }
+      existing.delete(s.id);
+      const img = card.querySelector('img');
+      if (s.running && !img.dataset.on) { img.src = mjpegUrl(s.id); img.dataset.on = '1'; }
+      if (!s.running && img.dataset.on) { img.src = ''; delete img.dataset.on; }
+      card.querySelector('.body').innerHTML = `
+        <b>${esc(s.name)}</b> <span class="muted">${esc(s.source_type)} · ${esc(s.status)}${s.running ? ' · ' + s.fps + ' fps' : ''}</span>
+        <div class="muted">${s.analytics ? 'KI: ' + esc(s.model) + (s.classes.length ? ' [' + esc(s.classes.join(', ')) + ']' : '') : 'ohne Analyse'}${s.create_markers ? ' · Lagekarte' : ''}</div>
+        ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
+        <div class="row">
+          ${s.running ? `<button data-act="stop">Stopp</button>` : `<button class="primary" data-act="start">Start</button>`}
+          <button data-act="edit">Bearbeiten</button>
+          <button data-act="ai">${s.analytics ? 'KI aus' : 'KI an'}</button>
+          <button class="danger" data-act="del">Löschen</button>
+        </div>`;
+    }
+    for (const id of existing) box.querySelector(`[data-id="${CSS.escape(id)}"]`).remove();
+    if (!streams.length) box.innerHTML = '<p class="muted">Noch keine Videoquellen.</p>';
+  }
+
+  $('#streams').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const id = b.closest('.card').dataset.id;
+    const s = streams.find((x) => x.id === id);
+    try {
+      if (b.dataset.act === 'start') await api(`/api/video/streams/${encodeURIComponent(id)}/start`, { method: 'POST' });
+      if (b.dataset.act === 'stop') await api(`/api/video/streams/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+      if (b.dataset.act === 'ai') await api(`/api/video/streams/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ analytics: !s.analytics }) });
+      if (b.dataset.act === 'del' && confirm(`„${s.name}" löschen?`)) await api(`/api/video/streams/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (b.dataset.act === 'edit') return edit(s);
+      await loadStreams(); loadStatus();
+    } catch (err) { alert(err.message); }
+  });
+
+  function edit(s) {
+    const f = $('#form');
+    f.reset();
+    for (const [k, v] of Object.entries(s)) {
+      const el = f.elements[k];
+      if (!el) continue;
+      if (el.type === 'checkbox') el.checked = !!v;
+      else el.value = Array.isArray(v) ? v.join(', ') : (v ?? '');
+    }
+    $('#form-title').textContent = 'Videoquelle bearbeiten';
+    $('#form-submit').textContent = 'Speichern';
+  }
+
+  $('#form-reset').onclick = () => { $('#form').reset(); $('#form').elements.id.value = ''; $('#form-title').textContent = 'Neue Videoquelle'; $('#form-submit').textContent = 'Hinzufügen'; };
+
+  $('#form').onsubmit = async (e) => {
+    e.preventDefault();
+    $('#form-err').textContent = '';
+    const f = e.target;
+    const body = {};
+    for (const el of f.elements) {
+      if (!el.name || el.name === 'id') continue;
+      body[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+    try {
+      const id = f.elements.id.value;
+      if (id) await api(`/api/video/streams/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
+      else await api('/api/video/streams', { method: 'POST', body: JSON.stringify(body) });
+      $('#form-reset').onclick();
+      await loadStreams(); loadStatus();
+    } catch (err) { $('#form-err').textContent = err.message; }
+  };
+
+  $('#auto-relay').onchange = (e) => api('/api/video/settings', { method: 'PUT', body: JSON.stringify({ auto_relay_analytics: e.target.checked }) });
+
+  function connectWs() {
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?token=${encodeURIComponent(token)}`);
+    ws.onopen = () => { $('#st-ws').className = 'pill ok'; ws.send(JSON.stringify({ type: 'subscribe', channel: 'video_analytics' })); };
+    ws.onclose = () => { $('#st-ws').className = 'pill bad'; setTimeout(connectWs, 3000); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+      if (m.type !== 'video_detection') return;
+      const d = m.data;
+      const log = $('#log');
+      if (log.querySelector('.muted')) log.innerHTML = '';
+      log.insertAdjacentHTML('afterbegin', `<div class="${d.alert ? 'alert' : ''}">${new Date(d.timestamp).toLocaleTimeString()} · ${esc(d.stream_name)} · ${esc(d.label)} ×${d.count} · ${Math.round(d.confidence * 100)}%${d.bearing != null ? ' · ' + Math.round(d.bearing) + '°' : ''}</div>`);
+      while (log.children.length > 200) log.lastChild.remove();
+    };
+  }
+
+  loadStatus().catch((e) => alert(e.message));
+  loadStreams().catch(() => {});
+  setInterval(() => { loadStreams().catch(() => {}); loadStatus().catch(() => {}); }, 5000);
+  connectWs();
+})();
+</script>
+</body>
+</html>

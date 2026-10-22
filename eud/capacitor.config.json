@@ -1,0 +1,20 @@
+{
+  "appId": "com.lpu5.tactical",
+  "appName": "LPU5 Tactical",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "allowsLinkPreview": false
+  },
+  "plugins": {
+    "StatusBar": { "style": "DARK", "backgroundColor": "#070a08", "overlaysWebView": false }
+  }
+}
