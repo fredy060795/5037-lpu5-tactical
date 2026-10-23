@@ -65,10 +65,11 @@ async function api(path, { method = 'GET', body, timeout = 10000 } = {}) {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (res.status === 401) { emit('auth-expired'); throw Object.assign(new Error('Nicht angemeldet'), { status: 401 }); }
+    // 401 only means "session expired" when there was a session (not for a failed login).
+    if (res.status === 401) { if (state.token) emit('auth-expired'); throw Object.assign(new Error('Nicht angemeldet'), { status: 401 }); }
     if (!res.ok) {
       let detail = '';
-      try { detail = (await res.json()).detail || ''; } catch (_) { /* ignore */ }
+      try { const j = await res.json(); detail = j.detail || j.message || ''; } catch (_) { /* ignore */ }
       if (detail === 'PASSWORD_CHANGE_REQUIRED') emit('password-required');
       throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status });
     }
@@ -113,6 +114,19 @@ export async function logout() {
   await store.del('kv', 'auth');
   if (ws) ws.close();
   setLink('offline');
+}
+
+/** Forget everything that came from the current server (before switching to another one). */
+export async function clearServerData() {
+  await store.clear('outbox');
+  state.outbox = 0;
+  emit('outbox', 0);
+  await store.replaceAll('markers', (await store.all('markers')).filter((m) => m._mesh));
+  await store.replaceAll('overlays', (await store.all('overlays')).filter((o) => o.source === 'local'));
+  await store.replaceAll('drawings', []);
+  for (const k of ['lastSync', 'geofences', 'geofenceState']) await store.del('kv', k);
+  state.lastSync = null;
+  emit('data', { full: true });
 }
 
 export function callsign() {
@@ -534,7 +548,7 @@ export async function uploadPackage(file) {
   const fd = new FormData();
   fd.append('file', file, file.name);
   const res = await fetch(apiUrl('/api/tak/packages'), { method: 'POST', body: fd, headers: { Authorization: `Bearer ${state.token}` } });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+  if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.detail || j.message || `HTTP ${res.status}`); }
   return (await res.json()).package;
 }
 

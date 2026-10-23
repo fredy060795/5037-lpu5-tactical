@@ -269,3 +269,11 @@ body.large-ui #map-quick .tsb-btn { width: 60px; height: 60px; }
 body.large-ui .sidebar-tile { min-height: 84px; }
 body.large-ui .btn { padding: 14px 16px; }
 body.large-ui .list li { padding: 14px 2px; }
+
+/* Server network */
+.net-banner { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; word-break: break-all; }
+.net-banner i { font-size: 9px; }
+.net-banner.online { background: rgba(46,204,113,.15); border: 1px solid rgba(46,204,113,.35); color: #7dffb0; }
+.net-banner.degraded { background: rgba(243,156,18,.15); border: 1px solid rgba(243,156,18,.35); color: var(--warn); }
+.net-banner.offline { background: rgba(231,76,60,.15); border: 1px solid rgba(231,76,60,.35); color: #ff9a8f; }
+#net-cam video { max-height: 40vh; }

@@ -258,3 +258,5 @@ Diese Funktionen sind neu. Sie tragen bewusst **kein** `[#]` – erst nach Prüf
 | [] | Geofence-Alarme | Lokal geprüft, auch offline |
 | [] | PIN, Fernlöschung, Zertifikat beim ersten Verbinden | |
 | [] | Nachtmodus, große Bedienelemente | |
+| [] | Layout der Feldansicht | Kopfleiste, Kompass, COMMAND MENU (Kacheln), Seitenleiste im Querformat |
+| [] | Server-Netzwerk | Gespeicherte Server, Testen/Wechseln, QR-Code (Kamera/Bild), Registrierung mit Admin-Freigabe |

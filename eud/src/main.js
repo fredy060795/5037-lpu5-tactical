@@ -23,6 +23,7 @@ import * as trust from './trust.js';
 import * as ops from './ops.js';
 import * as lockMod from './lock.js';
 import * as geofence from './geofence.js';
+import * as network from './network.js';
 
 const $ = (id) => document.getElementById(id);
 const STALE_MS = 5 * 60 * 1000;
@@ -415,20 +416,14 @@ function bindUi() {
     $('login-error').textContent = '';
     $('login-submit').disabled = true;
     try {
-      const u = await sync.login($('login-server').value, $('login-user').value, $('login-pass').value);
-      await store.saveSetting('offlineMode', false);
-      if (u.mustChangePassword) {
-        await forcePasswordChange($('login-pass').value);
-      }
-      if (!store.setting('basemapChosen', false)) setBasemap('srv-osm');
-      afterLogin();
-      trust.offerBrowserInstall(sync.state.server).catch(() => {});
+      await connectTo($('login-server').value, $('login-user').value, $('login-pass').value);
     } catch (err) {
       $('login-error').textContent = loginErrorText(err);
     } finally {
       $('login-submit').disabled = false;
     }
   });
+  $('login-network').onclick = () => { $('login').classList.add('hidden'); panels.open('network'); };
   $('login-offline').onclick = async () => {
     await store.saveSetting('offlineMode', true);
     $('login').classList.add('hidden');
@@ -460,7 +455,28 @@ export async function forcePasswordChange(oldPassword = '') {
   sync.reconnect();
 }
 
-function loginErrorText(err) {
+/**
+ * Log in to a server (login screen and server network). Switching to another
+ * server first drops the data of the previous one, so nothing ends up on the wrong server.
+ */
+export async function connectTo(server, username, password) {
+  const url = network.normaliseUrl(server);
+  if (sync.isLoggedIn() && sync.state.server !== url) {
+    await sync.logout();
+    await sync.clearServerData();
+  }
+  const u = await sync.login(url, username, password);
+  await store.saveSetting('offlineMode', false);
+  await store.saveSetting('lastServer', sync.state.server);
+  await network.remember({ url: sync.state.server, user: username, lastOk: Date.now() });
+  if (u.mustChangePassword) await forcePasswordChange(password);
+  if (!store.setting('basemapChosen', false)) setBasemap('srv-osm');
+  afterLogin();
+  trust.offerBrowserInstall(sync.state.server).catch(() => {});
+  return u;
+}
+
+export function loginErrorText(err) {
   if (err.status === 401) return 'Benutzername oder Passwort falsch';
   if (err.status === 495) return err.message;
   if (err.name === 'AbortError' || err instanceof TypeError) {

@@ -57,6 +57,22 @@ Details: [eud/README.md](eud/README.md).
 - Fenster öffnen sich im Querformat als Seitenleiste rechts, die Karte bleibt links bedienbar.
 - Im Hochformat wird die Kopfleiste zweizeilig.
 
+**Neues Gerät anmelden / registrieren** (☰ → „Server“ oder auf dem Anmeldebildschirm
+„QR-Code / Registrieren / Server“):
+1. **QR-Code scannen** (Kamera oder Bild). Die App versteht den Join-QR, den Team-QR, den
+   COT-Mesh-QR und den Einladungs-QR aus der LPU5-Hauptansicht/Admin-Seite. Die Serveradresse
+   wird übernommen und in „Gespeicherte Server“ abgelegt. Alternativ die Adresse von Hand
+   eintragen.
+2. Noch kein Konto → **Registrieren…**: Benutzername, Rufname, Einheit, Passwort (mind. 8
+   Zeichen). Ein Admin gibt die Registrierung in der Verwaltung unter
+   „Approve Users“ frei.
+3. Danach mit Benutzer und Passwort **Verbinden**. Beim ersten Mal übernimmt die App das
+   Server-Zertifikat.
+
+Mehrere Server lassen sich speichern, testen und wechseln. Passwörter werden nicht
+gespeichert. Beim Wechsel werden die Lagedaten des alten Servers auf dem Gerät verworfen;
+nicht gesendete Meldungen gehen dabei verloren (die App fragt vorher).
+
 - **Offline:** Karte, eigene Position, Lagebild, Overlays, Chatverlauf bleiben bei
   Verbindungsabbruch; Meldungen/Marker werden gepuffert und später gesendet.
 - **Karten:** über den LPU5-Kachelserver (auch ohne Internet), Gebiete vorab laden, MBTiles.
