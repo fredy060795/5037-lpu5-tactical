@@ -451,6 +451,9 @@ async def lifespan(application):
             _FEDERATION_SYNC_THREAD.start()
             logger.info("✅ Federation auto-sync worker started (interval=%ss)", fed_sync_interval)
 
+    if os.environ.get("LPU5_DISABLE_MARTI") != "1":
+        _start_marti_server()
+
     if video_manager:
         try:
             video_manager.start_autostart()
@@ -1835,6 +1838,9 @@ def _process_incoming_cot(cot_xml: str) -> None:
     """Parse an incoming CoT XML event, upsert a MapMarker, and broadcast to WebSocket clients."""
     # Capture for the CoT data monitor (best-effort, never blocks the main flow)
     _cot_monitor_record(cot_xml, "<<<", "tak_server")
+    # Shapes, routes, alerts, CASEVAC, video, file transfers (tak_integration.py)
+    if tak_bridge and tak_bridge.handle_inbound(cot_xml):
+        return
     import xml.etree.ElementTree as _ET
     try:
         root = _ET.fromstring(cot_xml)
@@ -4320,11 +4326,14 @@ def create_drawing(data: dict = Body(...)):
             "color": drawing.color,
             "weight": drawing.weight,
             "created_by": drawing.created_by,
-            "timestamp": drawing.created_at.isoformat()
+            "timestamp": drawing.created_at.isoformat(),
+            "data": drawing.data,
         }
         
         # Broadcast to all clients
         broadcast_websocket_update("drawings", "drawing_created", drawing_dict)
+        if tak_bridge:
+            tak_bridge.drawing_changed(drawing_dict)
         return {"status": "success", "drawing": drawing_dict}
     except Exception as e:
         db.rollback()
@@ -4366,11 +4375,14 @@ def update_drawing(drawing_id: str, data: dict = Body(...)):
             "color": drawing.color,
             "weight": drawing.weight,
             "created_by": drawing.created_by,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": drawing.data,
         }
         
         # Broadcast to all clients
         broadcast_websocket_update("drawings", "drawing_updated", drawing_dict)
+        if tak_bridge:
+            tak_bridge.drawing_changed(drawing_dict)
         return {"status": "success", "drawing": drawing_dict}
     except Exception as e:
         db.rollback()
@@ -4387,9 +4399,12 @@ def delete_drawing(drawing_id: str):
         drawing = db.query(Drawing).filter(Drawing.id == drawing_id).first()
         if not drawing:
              raise HTTPException(status_code=404, detail="Drawing not found")
+        deleted_dict = {"id": drawing.id, "coordinates": drawing.coordinates or [], "data": drawing.data or {}}
         db.delete(drawing)
         db.commit()
         broadcast_websocket_update("drawings", "drawing_deleted", {"id": drawing_id})
+        if tak_bridge:
+            tak_bridge.drawing_deleted(deleted_dict)
         return {"status": "success"}
     except Exception as e:
         db.rollback()
@@ -9101,6 +9116,15 @@ def _cot_listener_on_client_connect(conn: "socket.socket", addr: tuple) -> None:
             logger.info("CoT TCP: pushed %d existing markers to new client %s", pushed, addr)
     except Exception as exc:
         logger.debug("CoT TCP: initial marker push to %s failed: %s", addr, exc)
+    # Drawings, routes, video feeds and open alerts as well (tak_integration.py)
+    if tak_bridge:
+        try:
+            for xml in _tak_current_objects_cot():
+                conn.sendall(xml.encode("utf-8"))
+        except OSError:
+            pass
+        except Exception as exc:
+            logger.debug("CoT TCP: initial drawing push to %s failed: %s", addr, exc)
 
 
 def _cot_listener_ingest_callback(xml_string: str) -> None:
@@ -9115,6 +9139,8 @@ def _cot_listener_ingest_callback(xml_string: str) -> None:
     """
     # Capture for the CoT data monitor (best-effort, never blocks the main flow)
     _cot_monitor_record(xml_string, "<<<", "cot_listener")
+    if tak_bridge and tak_bridge.handle_inbound(xml_string):
+        return
 
     # Handle ATAK GeoChat (b-t-f) events BEFORE the AUTONOMOUS_MODULES_AVAILABLE
     # guard because GeoChat ingestion only needs stdlib xml.etree and the local
@@ -9375,8 +9401,12 @@ def _start_itak_bridge() -> bool:
         port = int(cfg.get("itak_bridge_port", iTAKBridgeServer.DEFAULT_PORT))
         cert_path = str(cfg.get("itak_bridge_cert", "cert.pem"))
         key_path = str(cfg.get("itak_bridge_key", "key.pem"))
+        # "0.0.0.0" lets ATAK/WinTAK on the network use the TLS stream
+        # (connection package with protocol=ssl); default stays local-only.
+        bind = str(cfg.get("itak_bridge_bind", iTAKBridgeServer.DEFAULT_BIND))
         _itak_bridge_service = iTAKBridgeServer(
             port=port,
+            bind_address=bind,
             cert_path=cert_path,
             key_path=key_path,
             ingest_callback=_cot_listener_ingest_callback,
@@ -9785,6 +9815,9 @@ async def ingest_cot_xml(request: Request):
 
     if not xml_string:
         raise HTTPException(status_code=400, detail="Empty request body")
+
+    if tak_bridge and tak_bridge.handle_inbound(xml_string):
+        return {"status": "success", "handled_by": "tak_integration"}
 
     # Validate before doing anything else
     if not CoTProtocolHandler.validate_cot_xml(xml_string):
@@ -13988,6 +14021,232 @@ def download_ca_profile():
     }
     return Response(content=plistlib.dumps(profile), media_type="application/x-apple-aspen-config",
                     headers={"Content-Disposition": 'attachment; filename="lpu5-ca.mobileconfig"'})
+
+# ATAK / WinTAK / iTAK two-way integration – see tak_integration.py
+MARTI_PORT = int(os.environ.get("LPU5_MARTI_PORT", "8080"))
+
+
+def _tak_send_cot(xml: str) -> None:
+    """Send LPU5-originated CoT to every TAK path (TAK server, TCP clients, multicast, iTAK)."""
+    _cot_monitor_record(xml, ">>>", "tak_integration")
+    try:
+        forward_cot_to_tak(xml)
+    except Exception as e:
+        logger.debug("tak forward failed: %s", e)
+    _tak_relay_cot(xml)
+
+
+def _tak_relay_cot(xml: str) -> None:
+    """Relay TAK traffic to the locally connected TAK clients (not upstream)."""
+    for fn in (_forward_cot_to_tcp_clients, _forward_cot_multicast, _forward_cot_to_itak_bridge):
+        try:
+            fn(xml)
+        except Exception as e:
+            logger.debug("tak relay %s failed: %s", fn.__name__, e)
+
+
+def _tak_upsert_drawing(d: Dict) -> None:
+    with SessionLocal() as db:
+        row = db.query(Drawing).filter(Drawing.id == d["id"]).first()
+        created = row is None
+        if created:
+            row = Drawing(id=d["id"])
+            db.add(row)
+        elif (row.coordinates == d["coordinates"] and row.color == d["color"] and row.name == d["name"]
+              and (row.data or {}).get("radius") == (d.get("data") or {}).get("radius")):
+            return  # unchanged repeat from TAK
+        row.name, row.type, row.coordinates = d["name"], d["type"], d["coordinates"]
+        row.color, row.weight, row.created_by, row.data = d["color"], d["weight"], d.get("created_by"), d.get("data")
+        db.commit()
+        out = {"id": row.id, "name": row.name, "type": row.type, "coordinates": row.coordinates,
+               "color": row.color, "weight": row.weight, "created_by": row.created_by, "data": row.data,
+               "timestamp": datetime.now(timezone.utc).isoformat()}
+    broadcast_websocket_update("drawings", "drawing_created" if created else "drawing_updated", out)
+
+
+def _tak_delete_drawing(drawing_id: str) -> None:
+    with SessionLocal() as db:
+        row = db.query(Drawing).filter(Drawing.id == drawing_id).first()
+        if not row:
+            return
+        db.delete(row)
+        db.commit()
+    broadcast_websocket_update("drawings", "drawing_deleted", {"id": drawing_id})
+
+
+def _tak_delete_marker(marker_id: str) -> None:
+    with SessionLocal() as db:
+        row = db.query(MapMarker).filter(MapMarker.id == marker_id).first()
+        if not row:
+            return
+        db.delete(row)
+        db.commit()
+    broadcast_websocket_update("markers", "marker_deleted", {"id": marker_id})
+
+
+def _tak_add_video(v: Dict) -> None:
+    if not video_manager:
+        return
+    sid = "tak-" + re.sub(r"[^a-zA-Z0-9_-]", "_", v["uid"])[:40]
+    try:
+        if sid in video_manager.streams:
+            s_ = video_manager.streams[sid]
+            if s_.cfg.get("source") != v["url"]:
+                video_manager.update(sid, {"source": v["url"], "name": v["alias"]})
+            return
+        video_manager.create({"id": sid, "name": f"{v['alias']} (ATAK)", "source": v["url"],
+                              "analytics": False, "autostart": False, "tak_url": v["url"]})
+        logger.info("Video feed from ATAK registered: %s -> %s", v["alias"], v["url"])
+    except Exception as e:
+        logger.warning("ATAK video %s not registered: %s", v.get("alias"), e)
+
+
+def _tak_fetch(url: str) -> Optional[bytes]:
+    # Content is verified against the SHA-256 announced in the CoT, so a
+    # TAK server's self-signed certificate does not need to be trusted here.
+    r = requests.get(url, timeout=60, verify=False)
+    r.raise_for_status()
+    return r.content
+
+
+def _tak_marker_cot(m: Dict) -> Optional[str]:
+    if not AUTONOMOUS_MODULES_AVAILABLE:
+        return None
+    evt = CoTProtocolHandler.marker_to_cot(m)
+    return evt.to_xml() if evt else None
+
+
+_TAK_HOST_CACHE: Dict[str, Any] = {}
+
+
+def _tak_server_host() -> str:
+    if time.time() - _TAK_HOST_CACHE.get("at", 0) > 300:
+        try:
+            _TAK_HOST_CACHE["host"] = get_local_ip()[0]
+        except Exception:
+            _TAK_HOST_CACHE["host"] = "127.0.0.1"
+        _TAK_HOST_CACHE["at"] = time.time()
+    return _TAK_HOST_CACHE["host"]
+
+
+def _tak_marti_base_url() -> str:
+    return f"http://{_tak_server_host()}:{MARTI_PORT}"
+
+
+def _tak_current_objects_cot() -> List[str]:
+    """Drawings, routes, video feeds and open LPU5 alerts as CoT (for new TAK clients)."""
+    out: List[str] = []
+    with SessionLocal() as db:
+        for d in db.query(Drawing).all():
+            # Shapes drawn on other TAK devices are included (with their
+            # original UID), so every newly connected client gets the full picture.
+            xml = _tak_integration.drawing_to_cot({"id": d.id, "name": d.name, "type": d.type,
+                                                    "coordinates": d.coordinates, "color": d.color,
+                                                    "weight": d.weight, "data": d.data or {}})
+            if xml:
+                out.append(xml)
+    if video_manager:
+        for s_ in video_manager.streams.values():
+            xml = _tak_integration.video_to_cot({**s_.cfg, "tak_url": s_.cfg.get("tak_url")}, _tak_server_host())
+            if xml and not s_.id.startswith("tak-"):
+                out.append(xml)
+    for a in tak_bridge.active_alerts() if tak_bridge else []:
+        if a.get("source") == "lpu5":
+            out.append(_tak_integration.alert_to_cot(a))
+    return out
+
+
+def _tak_current_user(authorization: Optional[str]) -> Optional[Dict]:
+    if not authorization:
+        return None
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else authorization.strip()
+    payload = verify_token(token)
+    if not payload:
+        return None
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.username == payload.get("username")).first()
+        return {"username": u.username, "callsign": u.callsign, "role": u.role} if u else None
+
+
+def _tak_ca_pem() -> Optional[bytes]:
+    p = os.path.join(base_path, "lpu5-ca.pem")
+    return open(p, "rb").read() if os.path.isfile(p) else None
+
+
+def _tak_export_situation() -> bytes:
+    with SessionLocal() as db:
+        markers = []
+        for m in db.query(MapMarker).all():
+            md = {"id": m.id, "lat": m.lat, "lng": m.lng, "name": m.name, "type": m.type, "created_by": m.created_by}
+            if isinstance(m.data, dict):
+                for k, v in m.data.items():
+                    md.setdefault(k, v)
+            markers.append(md)
+        drawings = [{"id": d.id, "name": d.name, "type": d.type, "coordinates": d.coordinates, "color": d.color,
+                     "weight": d.weight, "data": d.data or {}} for d in db.query(Drawing).all()]
+    return _tak_integration.export_package("LPU5 Lage", markers, drawings, _tak_marker_cot)
+
+
+def _tak_create_overlay_file(name: str, data: bytes, username: str) -> None:
+    """Store a KML/KMZ/GPX/GeoJSON file from a data package as server overlay."""
+    safe = re.sub(r"[^\w.-]", "_", name)
+    fname = f"{uuid.uuid4().hex[:8]}-{safe}"
+    path = os.path.join(uploads_dir, fname)
+    with open(path, "wb") as f:
+        f.write(data)
+    with SessionLocal() as db:
+        ov = Overlay(name=os.path.splitext(name)[0], image_url="", bounds={}, opacity=1.0, rotation=0,
+                     created_by=username or "atak",
+                     data={"kind": "file", "format": name.rsplit(".", 1)[-1].lower(), "fileUrl": f"/uploads/{fname}"})
+        db.add(ov)
+        db.commit()
+        db.refresh(ov)
+        out = {"id": ov.id, "name": ov.name, "imageUrl": "", "bounds": {}, "opacity": 1.0, "rotation": 0,
+               "created_by": ov.created_by, "data": ov.data, "timestamp": datetime.now(timezone.utc).isoformat()}
+    broadcast_websocket_update("overlays", "overlay_created", out)
+
+
+try:
+    import tak_integration as _tak_integration
+    tak_bridge = _tak_integration.TakBridge(
+        base_path,
+        send_cot=_tak_send_cot, relay=_tak_relay_cot, broadcast=broadcast_websocket_update,
+        upsert_drawing=_tak_upsert_drawing, delete_drawing=_tak_delete_drawing, delete_marker=_tak_delete_marker,
+        add_video=_tak_add_video, fetch=_tak_fetch,
+    )
+    app.include_router(_tak_integration.create_router(
+        tak_bridge, _tak_current_user, _tak_marti_base_url, _tak_server_host, _tak_ca_pem,
+        _tak_export_situation, lambda xml: _cot_listener_ingest_callback(xml), _tak_create_overlay_file))
+    _marti_router = _tak_integration.create_marti_router(tak_bridge, _tak_marti_base_url)
+    app.include_router(_marti_router)
+    if video_manager:
+        video_manager.on_change = lambda info: tak_bridge.video_published(info, _tak_server_host())
+    logger.info("TAK integration enabled (shapes, routes, alerts, CASEVAC, video, data packages)")
+except Exception as _tak_init_err:
+    tak_bridge = None
+    _marti_router = None
+    logger.warning("TAK integration unavailable: %s", _tak_init_err)
+
+
+def _start_marti_server() -> None:
+    """Serve the Marti data package API on the TAK server HTTP port (default 8080),
+    where ATAK looks for it when connected over TCP."""
+    if not _marti_router or MARTI_PORT <= 0:
+        return
+    import uvicorn as _uv
+    marti_app = FastAPI(title="LPU5 Marti", docs_url=None, redoc_url=None, openapi_url=None)
+    marti_app.include_router(_marti_router)
+    server = _uv.Server(_uv.Config(marti_app, host="0.0.0.0", port=MARTI_PORT, log_level="warning"))
+
+    def _run():
+        try:
+            server.run()
+        except Exception as e:
+            logger.warning("Marti API on port %s not started: %s", MARTI_PORT, e)
+
+    threading.Thread(target=_run, name="marti-http", daemon=True).start()
+    logger.info("✅ Marti data package API on http://0.0.0.0:%s/Marti", MARTI_PORT)
+
 
 # Radio transcription (Whisper) – see radio_transcribe.py
 try:

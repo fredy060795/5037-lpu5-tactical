@@ -441,6 +441,8 @@ class VideoAnalyticsManager:
         self.marker_sink = marker_sink
         self.streams: Dict[str, VideoStream] = {}
         self.lock = threading.Lock()
+        # Called with the stream config after create/update (TAK video feed announcement).
+        self.on_change: Optional[Callable[[Dict[str, Any]], None]] = None
         # Relay streams that were not configured explicitly are created on the
         # fly when an EUD shares its camera (setting auto_relay).
         self.settings: Dict[str, Any] = {"auto_relay": True, "auto_relay_analytics": True}
@@ -486,7 +488,7 @@ class VideoAnalyticsManager:
     ALLOWED_KEYS = {
         "name", "source", "analytics", "model", "confidence", "classes", "alert_classes",
         "create_markers", "marker_type", "lat", "lng", "heading", "hfov", "range_m",
-        "max_fps", "imgsz", "autostart", "loop", "hide_source",
+        "max_fps", "imgsz", "autostart", "loop", "hide_source", "tak_url",
     }
 
     def _clean(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -515,7 +517,15 @@ class VideoAnalyticsManager:
             self._save()
         if cfg.get("autostart", True):
             s.start()
+        self._changed(s)
         return s
+
+    def _changed(self, s: "VideoStream"):
+        if self.on_change:
+            try:
+                self.on_change(dict(s.cfg))
+            except Exception as e:
+                logger.debug("video on_change failed: %s", e)
 
     def update(self, stream_id: str, data: Dict[str, Any]) -> VideoStream:
         s = self.get(stream_id)
@@ -529,6 +539,7 @@ class VideoAnalyticsManager:
             self._save()
         if restart:
             s.start()
+        self._changed(s)
         return s
 
     def delete(self, stream_id: str):

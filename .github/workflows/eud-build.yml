@@ -10,6 +10,9 @@ on:
       - 'test_video_analytics.py'
       - 'radio_transcribe.py'
       - 'test_radio_transcribe.py'
+      - 'tak_integration.py'
+      - 'test_tak_integration.py'
+      - 'api.py'
       - '.github/workflows/eud-build.yml'
   pull_request:
     paths:
@@ -46,7 +49,7 @@ jobs:
         with: { python-version: '3.12' }
       - run: pip install fastapi httpx pytest opencv-python-headless numpy python-multipart
       - run: pip install scipy
-      - run: python -m pytest -q test_video_analytics.py test_radio_transcribe.py
+      - run: python -m pytest -q test_video_analytics.py test_radio_transcribe.py test_tak_integration.py
 
   radio-whisper:
     name: Funk-Mitschrift (Whisper, echte Spracherkennung)
