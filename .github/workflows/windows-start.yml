@@ -1,0 +1,51 @@
+name: Windows start (start_lpu5.bat)
+
+# Runs start_lpu5.bat on a real Windows machine exactly like a user does
+# (fresh .venv, dependency install, server start) and checks that the
+# server answers. Catches Windows-only start crashes.
+
+on:
+  push:
+    branches: [main, master, 'claude/**']
+    paths:
+      - '*.py'
+      - '*.bat'
+      - 'requirements.txt'
+      - '.github/workflows/windows-start.yml'
+  workflow_dispatch:
+
+jobs:
+  start-bat:
+    name: start_lpu5.bat (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run start_lpu5.bat and wait for the server
+        shell: pwsh
+        run: |
+          $env:LPU5_SKIP_YOLO = '1'
+          $env:LPU5_NO_BROWSER = '1'
+          $p = Start-Process cmd.exe -ArgumentList '/c', 'start_lpu5.bat < NUL > start.log 2>&1' -PassThru -NoNewWindow
+          $ok = $false
+          for ($i = 0; $i -lt 180; $i++) {
+            Start-Sleep -Seconds 5
+            $code = & curl.exe -sk -o NUL -w "%{http_code}" https://127.0.0.1:8101/api/tls/info
+            if ($code -eq '200') { $ok = $true; break }
+            $code = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:8101/api/tls/info
+            if ($code -eq '200') { $ok = $true; break }
+            if ($p.HasExited) { Write-Host "start_lpu5.bat exited (code $($p.ExitCode))"; break }
+          }
+          Write-Host "===== start.log ====="
+          Get-Content start.log -Encoding utf8
+          if (-not $ok) { Write-Error 'Server did not start'; exit 1 }
+          Write-Host "Server answers on port 8101"
+          & curl.exe -sk https://127.0.0.1:8101/api/dependencies/check
+          Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
