@@ -6613,6 +6613,17 @@ def api_qr_cot_mesh(data: dict = Body(...), request: Request = None, db: Session
     key_file = os.path.join(base_path, "key.pem")
     use_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
     protocol = "https" if use_ssl else "http"
+
+    # Show the CA fingerprint so users can compare it with the one the EUD
+    # displays on first connect.
+    try:
+        _ca = _ca_certificate()
+        logger.info("="*60)
+        logger.info("  LPU5 CA fingerprint (SHA-256) – compare on EUD first connect:")
+        logger.info("  %s", _ca_fingerprint(_ca))
+        logger.info("="*60)
+    except Exception:
+        pass
     server_port = 8101
 
     # Read COT listener ports from config
@@ -13896,6 +13907,59 @@ def download_ca_certificate():
         raise HTTPException(status_code=500, detail=f"CA unreadable: {e}")
     return Response(content=der, media_type="application/x-x509-ca-cert",
                     headers={"Content-Disposition": 'attachment; filename="lpu5-ca.crt"'})
+
+def _ca_certificate():
+    ca_path = os.path.join(base_path, "lpu5-ca.pem")
+    if not os.path.isfile(ca_path):
+        raise HTTPException(status_code=404, detail="No LPU5 CA – server runs without generated certificates")
+    from cryptography import x509
+    with open(ca_path, "rb") as f:
+        return x509.load_pem_x509_certificate(f.read())
+
+
+def _ca_fingerprint(cert) -> str:
+    from cryptography.hazmat.primitives import hashes
+    return ":".join(f"{b:02X}" for b in cert.fingerprint(hashes.SHA256()))
+
+
+@app.get("/api/tls/info", include_in_schema=False)
+def tls_info():
+    """Fingerprint of the LPU5 CA, so EUDs can show it when asking the user to trust it."""
+    cert = _ca_certificate()
+    return {"subject": cert.subject.rfc4514_string(), "fingerprint": _ca_fingerprint(cert),
+            "valid_to": getattr(cert, "not_valid_after_utc", None) and cert.not_valid_after_utc.isoformat()}
+
+
+@app.get("/lpu5-ca.mobileconfig", include_in_schema=False)
+def download_ca_profile():
+    """iOS configuration profile containing the LPU5 root CA."""
+    from cryptography.hazmat.primitives import serialization
+    import plistlib
+    cert = _ca_certificate()
+    der = cert.public_bytes(serialization.Encoding.DER)
+    fp = _ca_fingerprint(cert).replace(":", "")
+    payload_uuid = str(uuid.UUID(fp[:32]))
+    profile = {
+        "PayloadContent": [{
+            "PayloadCertificateFileName": "lpu5-ca.cer",
+            "PayloadContent": der,
+            "PayloadDescription": "LPU5 Tactical Root CA",
+            "PayloadDisplayName": "LPU5 Tactical Root CA",
+            "PayloadIdentifier": f"com.lpu5.tactical.ca.{fp[:16]}",
+            "PayloadType": "com.apple.security.root",
+            "PayloadUUID": payload_uuid,
+            "PayloadVersion": 1,
+        }],
+        "PayloadDescription": "Vertrauen für den LPU5-Einsatzserver (Kamera, Bluetooth, Offline-Modus)",
+        "PayloadDisplayName": "LPU5 Tactical Server",
+        "PayloadIdentifier": f"com.lpu5.tactical.profile.{fp[:16]}",
+        "PayloadRemovalDisallowed": False,
+        "PayloadType": "Configuration",
+        "PayloadUUID": str(uuid.UUID(fp[32:64])),
+        "PayloadVersion": 1,
+    }
+    return Response(content=plistlib.dumps(profile), media_type="application/x-apple-aspen-config",
+                    headers={"Content-Disposition": 'attachment; filename="lpu5-ca.mobileconfig"'})
 
 # EUD field client (eud/, built with `npm run build`) – installable PWA for
 # iOS/Android browsers, same code as the Android/iOS apps.

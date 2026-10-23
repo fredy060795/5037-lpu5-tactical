@@ -148,3 +148,6 @@ input[type=checkbox] { width: 20px; height: 20px; vertical-align: middle; accent
 .tabs .btn.selected { border-color: var(--accent); background: #1f3a27; }
 .notice { background: #3a2f10; border: 1px solid #6b5518; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 6px 0; }
 video.preview { width: 100%; border-radius: 8px; background: #000; max-height: 30vh; }
+.fingerprint { display: block; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; background: #0b100d;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; color: var(--warn); }
+.fingerprint:empty { display: none; }

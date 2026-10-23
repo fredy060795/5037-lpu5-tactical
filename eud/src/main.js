@@ -18,6 +18,7 @@ import * as overlays from './overlays.js';
 import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } from './geoutil.js';
 import * as panels from './panels.js';
 import * as mesh from './mesh.js';
+import * as trust from './trust.js';
 
 const $ = (id) => document.getElementById(id);
 const STALE_MS = 5 * 60 * 1000;
@@ -65,7 +66,7 @@ async function boot() {
     App.addListener('appStateChange', ({ isActive }) => { if (isActive) sync.reconnect(); });
   }
   if ('serviceWorker' in navigator && !Capacitor.isNativePlatform() && import.meta.env.PROD) {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
+    navigator.serviceWorker.register('./sw.js').catch((e) => { console.warn('SW', e); trust.noteServiceWorkerError(e); });
   }
 }
 
@@ -366,6 +367,7 @@ function bindUi() {
       await sync.login($('login-server').value, $('login-user').value, $('login-pass').value);
       await store.saveSetting('offlineMode', false);
       afterLogin();
+      trust.offerBrowserInstall(sync.state.server).catch(() => {});
     } catch (err) {
       $('login-error').textContent = loginErrorText(err);
     } finally {
@@ -381,6 +383,7 @@ function bindUi() {
 
 function loginErrorText(err) {
   if (err.status === 401) return 'Benutzername oder Passwort falsch';
+  if (err.status === 495) return err.message;
   if (err.name === 'AbortError' || err instanceof TypeError) {
     const srv = ($('login-server').value || '').trim().replace(/\/+$/, '');
     return `Server nicht erreichbar. Adresse und WLAN prüfen. Bei HTTPS einmalig die LPU5-CA installieren: ${srv.startsWith('http') ? srv : 'https://' + srv}/lpu5-ca.crt (siehe Anleitung).`;

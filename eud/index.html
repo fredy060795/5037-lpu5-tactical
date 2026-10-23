@@ -35,6 +35,17 @@
     </form>
   </div>
 
+  <!-- Certificate confirmation -->
+  <div id="trust-dialog" class="screen hidden" style="z-index:3500">
+    <div class="login-box">
+      <h1 id="trust-title" style="font-size:17px;letter-spacing:.04em"></h1>
+      <p id="trust-text" class="muted" style="text-align:left"></p>
+      <code id="trust-fp" class="fingerprint"></code>
+      <button type="button" class="btn primary" id="trust-ok">Vertrauen &amp; verbinden</button>
+      <button type="button" class="btn" id="trust-cancel">Abbrechen</button>
+    </div>
+  </div>
+
   <!-- Status bar -->
   <header id="statusbar">
     <span id="sb-callsign" class="sb-item strong">EUD</span>

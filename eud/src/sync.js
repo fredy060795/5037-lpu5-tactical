@@ -5,6 +5,7 @@
 // the outbox and are replayed in order once the server is reachable again.
 
 import * as store from './store.js';
+import { ensureTrusted } from './trust.js';
 
 const bus = new EventTarget();
 export const on = (type, fn) => bus.addEventListener(type, (e) => fn(e.detail));
@@ -80,6 +81,8 @@ export async function login(server, username, password) {
   state.server = server.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(state.server)) state.server = `https://${state.server}`;
   state.token = '';
+  // First connect: fetch and confirm the server certificate (native app).
+  await ensureTrusted(state.server);
   const r = await api('/api/login_user', { method: 'POST', body: { username, password } });
   state.token = r.token;
   state.user = r.user;

@@ -65,21 +65,32 @@ Browser geben Kamera, Bluetooth, Standort und Offline-Speicher (Service Worker)
 **nur für vertrauenswürdige HTTPS-Seiten** frei. Ein einfaches selbstsigniertes
 Zertifikat reicht dafür nicht.
 
-Der Server erzeugt jetzt beim Start eine **eigene LPU5-Root-CA** und damit ein
-Serverzertifikat für alle seine IP-Adressen. Die CA einmal auf jedem Gerät
-installieren:
+Der Server erzeugt beim Start eine **eigene LPU5-Root-CA** und damit ein
+Serverzertifikat für alle seine IP-Adressen. Den SHA-256-Fingerabdruck der CA
+zeigt die Serverkonsole beim Start an.
 
-* Download: `https://<server>:8101/lpu5-ca.crt` (Zertifikatswarnung einmalig bestätigen)
+**Native App (Android/iOS) – automatisch beim ersten Verbinden:**
+Beim ersten Login holt die App das Zertifikat selbst vom Server, zeigt Name und
+Fingerabdruck an und speichert es nach einmaligem „Vertrauen & verbinden“ in
+der App (Trust on first use, wie bei SSH). Danach laufen Verbindung, Live-Daten
+und Video ohne weitere Schritte. Meldet der Server später ein **anderes**
+Zertifikat, warnt die App deutlich (möglicher Angriff) und verbindet erst nach
+erneuter Bestätigung. Eine systemweite Installation ist für die App nicht nötig.
+
+**PWA im Browser:** Browser lassen sich von einer Webseite aus nicht dazu
+bringen, einem Zertifikat zu vertrauen – das verhindern Android und iOS
+bewusst. Erkennt die PWA nach dem Login, dass der Browser dem Server nicht
+vertraut, lädt sie das Zertifikat automatisch herunter (Android: `lpu5-ca.crt`,
+iOS: Profil `lpu5-ca.mobileconfig`) und zeigt die restlichen Schritte:
+
 * **Android:** Einstellungen → Sicherheit → Verschlüsselung & Anmeldedaten →
-  Zertifikat installieren → **CA-Zertifikat** → Datei wählen.
-* **iOS:** Datei in Safari öffnen → Einstellungen → „Profil geladen“ → installieren,
+  Zertifikat installieren → **CA-Zertifikat** → `lpu5-ca.crt`.
+* **iOS:** Profil erlauben → Einstellungen → „Profil geladen“ → installieren,
   danach Allgemein → Info → **Zertifikatsvertrauenseinstellungen** → LPU5 CA aktivieren.
 
-Danach gelten alle späteren Serverzertifikate automatisch als vertrauenswürdig,
-auch wenn sich die Server-IP ändert. Alte Zertifikate (`cert.pem` aus dem
-früheren Generator) werden beim Start automatisch ersetzt.
-Die native Android-App vertraut zusätzlich vom Nutzer installierten CAs und
-erlaubt HTTP im Feldnetz.
+Manuell: `https://<server>:8101/lpu5-ca.crt` bzw. `/lpu5-ca.mobileconfig`.
+Alle späteren Serverzertifikate (auch nach IP-Wechsel) sind damit gültig.
+Alte Zertifikate aus dem früheren Generator werden beim Start automatisch ersetzt.
 
 ## Offline-Karten vorbereiten
 

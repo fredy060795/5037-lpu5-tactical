@@ -12,8 +12,8 @@
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
   <title>LPU5 EUD</title>
-  <script type="module" crossorigin src="./assets/index-D8sRo2YY.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-pBRg-lEy.css">
+  <script type="module" crossorigin src="./assets/index-BkismpT0.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-UzOYw5kd.css">
 </head>
 <body>
   <!-- Login -->
@@ -35,6 +35,17 @@
       <button type="button" class="btn" id="login-offline">Offline fortfahren</button>
       <p id="login-error" class="error"></p>
     </form>
+  </div>
+
+  <!-- Certificate confirmation -->
+  <div id="trust-dialog" class="screen hidden" style="z-index:3500">
+    <div class="login-box">
+      <h1 id="trust-title" style="font-size:17px;letter-spacing:.04em"></h1>
+      <p id="trust-text" class="muted" style="text-align:left"></p>
+      <code id="trust-fp" class="fingerprint"></code>
+      <button type="button" class="btn primary" id="trust-ok">Vertrauen &amp; verbinden</button>
+      <button type="button" class="btn" id="trust-cancel">Abbrechen</button>
+    </div>
   </div>
 
   <!-- Status bar -->
