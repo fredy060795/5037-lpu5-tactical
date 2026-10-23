@@ -12,6 +12,8 @@ on:
       - 'test_radio_transcribe.py'
       - 'tak_integration.py'
       - 'security.py'
+      - 'tile_server.py'
+      - 'test_tile_server.py'
       - 'test_security.py'
       - 'test_tak_integration.py'
       - 'api.py'
@@ -49,9 +51,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: pip install fastapi httpx pytest opencv-python-headless numpy python-multipart cryptography
+      - run: pip install fastapi httpx pytest opencv-python-headless numpy python-multipart cryptography requests pillow
       - run: pip install scipy
-      - run: python -m pytest -q test_video_analytics.py test_radio_transcribe.py test_tak_integration.py test_security.py
+      - run: python -m pytest -q test_video_analytics.py test_radio_transcribe.py test_tak_integration.py test_security.py test_tile_server.py
 
   radio-whisper:
     name: Funk-Mitschrift (Whisper, echte Spracherkennung)

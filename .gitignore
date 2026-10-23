@@ -95,3 +95,5 @@ secret.key
 qr_codes_db.json
 pending_registrations_db.json
 data_packages/
+tile_cache/
+maps/*.mbtiles

@@ -12,14 +12,14 @@
     <!-- ═══════════════════════════════════════════════════════════════
          CDN Dependencies (deduplicated from all merged pages)
          ═══════════════════════════════════════════════════════════════ -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/milsymbol@2.2.0/dist/milsymbol.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link href="/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
+    <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+    <script src="/vendor/milsymbol/milsymbol.js"></script>
+    <script src="/vendor/fontawesome/js/all.min.js"></script>
+    <script src="/vendor/jsqr/jsQR.min.js"></script>
     <script src="/assets/qrcode.min.js"></script>
-    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="/vendor/dexie/dexie.js"></script>
 
     <!-- ═══════════════════════════════════════════════════════════════
          SPA Shell Styles
@@ -14604,9 +14604,9 @@ window.addEventListener('storage', (e) => {
       let activeBaseKey = ['street','sat','terrain'].includes(_savedBase) ? _savedBase : 'street';
 
       const _basemapSources = {
-        street:  { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
-        sat:     { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
-        terrain: { type: 'raster', tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
+        street:  { type: 'raster', tiles: [(location.origin + '/tiles/osm/{z}/{x}/{y}')],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
+        sat:     { type: 'raster', tiles: [(location.origin + '/tiles/sat/{z}/{x}/{y}')], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
+        terrain: { type: 'raster', tiles: [(location.origin + '/tiles/topo/{z}/{x}/{y}')],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
       };
 
       const _mlMap = new maplibregl.Map({
@@ -24634,10 +24634,10 @@ var layerState = {
 };
 var map = L.map('intel-map', { center: [20, 10], zoom: 2, zoomControl: true, attributionControl: false });
 var tiles = {
-    dark:      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }),
-    street:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-    topo:      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, opacity: 0.9 })
+    dark:      L.tileLayer((location.origin + '/tiles/dark/{z}/{x}/{y}'), { maxZoom: 19, subdomains: 'abcd' }),
+    street:    L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), { maxZoom: 19 }),
+    satellite: L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), { maxZoom: 19 }),
+    topo:      L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), { maxZoom: 17, opacity: 0.9 })
 };
 tiles.dark.addTo(map);
 var currentTile = 'dark';

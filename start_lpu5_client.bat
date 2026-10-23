@@ -1,118 +1,41 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-setlocal enabledelayedexpansion
+REM ======================================================================
+REM  LPU5 Tactical – Web-Anwendung oeffnen
+REM
+REM  LPU5 laeuft als Web-Anwendung: EIN Rechner im TOC startet den Server
+REM  (start_lpu5.bat), alle anderen Arbeitsplaetze, Tablets und Handys im
+REM  selben WLAN oeffnen nur den Browser.
+REM
+REM  Dieses Skript:
+REM   - startet den Server auf diesem PC, falls er noch nicht laeuft
+REM   - oeffnet die Web-Oberflaeche im Standardbrowser
+REM
+REM  Fuer einen anderen Server im WLAN:  start_lpu5_client.bat 192.168.8.10
+REM  (Der fruehere isolierte Desktop-Client LPU5.py ist weiterhin per
+REM   "python LPU5.py" startbar, teilt aber KEINE Daten mit dem TOC.)
+REM ======================================================================
 
-echo.
-echo ========================================
-echo   LPU5 TACTICAL TRACKER - CLIENT
-echo   Standalone Desktop-Anwendung (Full UI)
-echo ========================================
-echo.
+set "HOST=%~1"
+if not "%HOST%"=="" goto open_remote
 
-REM ── Python erkennen ──────────────────────────────────────────
-set "PYTHON_CMD="
-where py >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3"
-) else (
-    where python3 >nul 2>&1
-    if not errorlevel 1 (
-        set "PYTHON_CMD=python3"
-    ) else (
-        where python >nul 2>&1
-        if not errorlevel 1 (
-            set "PYTHON_CMD=python"
-        )
-    )
-)
-
-if "!PYTHON_CMD!" == "" (
-    echo [FEHLER] Python 3 wurde nicht gefunden.
-    echo          Bitte installieren: https://www.python.org/downloads/
-    echo.
-    pause
-    exit /b 1
-)
-
-REM ── Python-Version pruefen ───────────────────────────────────
-echo [*] Python: !PYTHON_CMD!
-!PYTHON_CMD! --version 2>&1
-
-REM ── Virtuelle Umgebung ───────────────────────────────────────
-set "VENV_DIR=.venv_client"
-
-if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo [*] Erstelle virtuelle Umgebung...
-    !PYTHON_CMD! -m venv "%VENV_DIR%"
-    if errorlevel 1 (
-        echo [FEHLER] Virtuelle Umgebung konnte nicht erstellt werden.
-        pause
-        exit /b 1
-    )
-    echo [OK] Virtuelle Umgebung erstellt: %VENV_DIR%
-)
-
-call "%VENV_DIR%\Scripts\activate.bat"
-
-REM ── Abhaengigkeiten installieren ─────────────────────────────
-echo [*] Pruefe Abhaengigkeiten...
-pip show pywebview >nul 2>&1
+netstat -an 2>nul | findstr "LISTENING" | findstr ":8101 " >nul 2>&1
 if errorlevel 1 (
-    echo [*] Installiere pywebview...
-    pip install --upgrade pip >nul 2>&1
-    pip install pywebview 2>&1
-    if errorlevel 1 (
-        echo [FEHLER] pywebview konnte nicht installiert werden.
-        echo          Versuchen Sie: pip install pywebview[cef]
-        pause
-        exit /b 1
+    echo [*] LPU5-Server laeuft noch nicht - wird gestartet ...
+    start "LPU5 Tactical Server" cmd /k "%~dp0start_lpu5.bat"
+    echo [*] Warte auf den Server ...
+    for /l %%i in (1,1,60) do (
+        timeout /t 2 /nobreak >nul
+        netstat -an 2>nul | findstr "LISTENING" | findstr ":8101 " >nul 2>&1 && goto open_local
     )
-    echo [OK] pywebview installiert
-) else (
-    echo [OK] pywebview vorhanden
+    echo [WARN] Server antwortet noch nicht - Browser wird trotzdem geoeffnet.
 )
 
-pip show pyserial >nul 2>&1
-if errorlevel 1 (
-    echo [*] Installiere pyserial (COM-Port Zugriff)...
-    pip install pyserial 2>&1
-    if errorlevel 1 (
-        echo [WARNUNG] pyserial konnte nicht installiert werden.
-        echo           COM-Port-Scan wird nicht verfuegbar sein.
-    ) else (
-        echo [OK] pyserial installiert
-    )
-) else (
-    echo [OK] pyserial vorhanden
-)
+:open_local
+start "" "https://127.0.0.1:8101/"
+exit /b 0
 
-REM ── Dateien pruefen ──────────────────────────────────────────
-if not exist "index.html" (
-    echo [FEHLER] index.html nicht gefunden!
-    echo          Stellen Sie sicher, dass dieses Skript im
-    echo          LPU5 Projektverzeichnis liegt.
-    pause
-    exit /b 1
-)
-
-if not exist "LPU5.py" (
-    echo [FEHLER] LPU5.py nicht gefunden!
-    pause
-    exit /b 1
-)
-
-REM ── Client starten ───────────────────────────────────────────
-echo.
-echo ========================================
-echo   Starte LPU5 Desktop Client...
-echo   Vollstaendige UI ohne Server.
-echo   Fenster schliessen zum Beenden.
-echo ========================================
-echo.
-
-python LPU5.py %*
-
-echo.
-echo [*] LPU5 Client beendet.
-pause
+:open_remote
+start "" "https://%HOST%:8101/"
+exit /b 0

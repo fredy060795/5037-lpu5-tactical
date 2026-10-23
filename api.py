@@ -14415,6 +14415,17 @@ def _start_marti_server() -> None:
     logger.info("✅ Marti data package API on http://0.0.0.0:%s/Marti", MARTI_PORT)
 
 
+# Map tiles for all devices in the TOC network, cached for offline use – see tile_server.py
+try:
+    import tile_server as _tile_server
+    tile_server = _tile_server.TileServer(base_path)
+    app.include_router(_tile_server.create_router(
+        tile_server, lambda auth: (_tak_current_user(auth) or {}).get("role") in ("admin", "operator")))
+    logger.info("Tile server enabled: /tiles/{source}/{z}/{x}/{y} (cache: tile_cache/, MBTiles: maps/)")
+except Exception as _tile_err:
+    tile_server = None
+    logger.warning("Tile server unavailable: %s", _tile_err)
+
 # Radio transcription (Whisper) – see radio_transcribe.py
 try:
     import radio_transcribe as _radio_transcribe
@@ -14579,7 +14590,40 @@ if __name__ == "__main__":
                 logger.info(f"    - {protocol}://{ip}:8101/landing.html")
     
     logger.info("="*60)
-    
+
+    # LPU5 is a web application: every device in the TOC WLAN opens it in the
+    # browser. Print the address prominently (plus QR code for phones) and open
+    # the browser on this PC.
+    _web_url = f"{protocol}://{local_ip}:8101/"
+    print("\n" + "#" * 64)
+    print("#  LPU5 TACTICAL – WEB-ANWENDUNG LÄUFT")
+    print("#")
+    print(f"#  Im TOC-WLAN im Browser öffnen:   {_web_url}")
+    print(f"#  Feldgerät / Handy (EUD):         {protocol}://{local_ip}:8101/eud/")
+    print(f"#  ATAK/WinTAK:  TCP {local_ip}:8088  (Verbindungspaket im Admin-Bereich)")
+    if use_ssl:
+        print(f"#  Zertifikat für Geräte:           {protocol}://{local_ip}:8101/lpu5-ca.crt")
+    print("#  Dieses Fenster offen lassen – Schließen beendet den Server.")
+    print("#" * 64)
+    try:
+        import qrcode as _qr
+        _q = _qr.QRCode(border=1)
+        _q.add_data(_web_url)
+        _q.make(fit=True)
+        _q.print_ascii(invert=True)
+    except Exception:
+        pass
+    print("")
+    if os.environ.get("LPU5_NO_BROWSER") != "1":
+        def _open_browser():
+            import webbrowser
+            time.sleep(3)
+            try:
+                webbrowser.open(f"{protocol}://127.0.0.1:8101/")
+            except Exception:
+                pass
+        threading.Thread(target=_open_browser, daemon=True).start()
+
     # Run with or without SSL
     if use_ssl:
         uvicorn.run(

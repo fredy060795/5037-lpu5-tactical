@@ -9,8 +9,8 @@
   <link rel="icon" type="image/png" href="/browser-logo.png">
   <title>TACTICAL MAP - PRECISION MOBILE</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
   <style>
     :root {
       --bg-dark: #0a0a0a;
@@ -1355,8 +1355,8 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/vendor/dexie/dexie.js"></script>
   <script src="assets/api-client.js"></script>
   <script src="assets/ws-client.js"></script>
   <!-- <script src="intel-data.js"></script> -->
@@ -1366,7 +1366,7 @@
   <script src="cot-client.js"></script>
   <script src="message-queue-manager.js"></script>
   <!-- MilSymbol: spatialillusions/milsymbol for dynamic military symbol SVG generation -->
-  <script src="https://cdn.jsdelivr.net/npm/milsymbol@2.2.0/dist/milsymbol.js"></script>
+  <script src="/vendor/milsymbol/milsymbol.js"></script>
   
   <script>
     /* Overview map with immediate (optimistic) marker placement and persistent pending markers.
@@ -2196,14 +2196,14 @@
       // Set new layer based on type
       switch (layerType) {
         case 'satellite':
-          baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), {
             attribution: '© Esri',
             maxZoom: 19
           }).addTo(map);
           currentLayerType = 'satellite';
           break;
         case 'terrain':
-          baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), {
             attribution: '© OpenTopoMap contributors',
             maxZoom: 17
           }).addTo(map);
@@ -2211,7 +2211,7 @@
           break;
         case 'street':
         default:
-          baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), {
             attribution: '© OpenStreetMap contributors'
           }).addTo(map);
           currentLayerType = 'street';
@@ -2353,14 +2353,14 @@
       // Initialize with saved or default layer
       switch (savedLayer) {
         case 'satellite':
-          baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), {
             attribution: '© Esri',
             maxZoom: 19
           }).addTo(map);
           currentLayerType = 'satellite';
           break;
         case 'terrain':
-          baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), {
             attribution: '© OpenTopoMap contributors',
             maxZoom: 17
           }).addTo(map);
@@ -2368,7 +2368,7 @@
           break;
         case 'street':
         default:
-          baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), {
             attribution: '© OpenStreetMap contributors'
           }).addTo(map);
           currentLayerType = 'street';
