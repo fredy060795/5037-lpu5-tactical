@@ -14108,8 +14108,15 @@ def _video_marker_sink(marker: Dict) -> None:
 
 try:
     import video_analytics as _video_analytics
+    def _video_broadcast(channel, event, data):
+        broadcast_websocket_update(channel, event, data)
+        # KI alarms go into the TSL situation log as well (tsl is defined further below)
+        _tsl = globals().get("tsl")
+        if event == "video_detection" and _tsl:
+            _tsl.video(data)
+
     video_manager = _video_analytics.VideoAnalyticsManager(
-        base_path, broadcast=broadcast_websocket_update, marker_sink=_video_marker_sink)
+        base_path, broadcast=_video_broadcast, marker_sink=_video_marker_sink)
     app.include_router(_video_analytics.create_router(video_manager, verify_token))
     logger.info("Video analytics enabled (OpenCV=%s, YOLO=%s)",
                 _video_analytics.CV2_AVAILABLE, _video_analytics.YOLO_AVAILABLE)
@@ -14188,6 +14195,30 @@ def download_ca_profile():
     }
     return Response(content=plistlib.dumps(profile), media_type="application/x-apple-aspen-config",
                     headers={"Content-Disposition": 'attachment; filename="lpu5-ca.mobileconfig"'})
+
+# TSL situation log (Lagetagebuch) – see tsl_bridge.py
+def _mgrs_text(lat: float, lng: float) -> str:
+    try:
+        import mgrs as _mgrs_mod  # optional dependency
+        return _mgrs_mod.MGRS().toMGRS(lat, lng)
+    except Exception:
+        return f"{lat:.5f}, {lng:.5f}"
+
+
+try:
+    import tsl_bridge as _tsl_bridge
+    tsl = _tsl_bridge.TslBridge(lambda: load_json("config") or {}, _mgrs_text)
+except Exception as _tsl_err:
+    tsl = None
+    logger.warning("TSL bridge unavailable: %s", _tsl_err)
+
+
+@app.get("/api/tsl/status")
+def tsl_status():
+    cfg = load_json("config") or {}
+    return {"configured": bool(cfg.get("tsl_url")), "url": cfg.get("tsl_url") or "",
+            "stats": tsl.stats if tsl else None}
+
 
 # ATAK / WinTAK / iTAK two-way integration – see tak_integration.py
 MARTI_PORT = int(os.environ.get("LPU5_MARTI_PORT", "8080"))
@@ -14380,6 +14411,7 @@ try:
         send_cot=_tak_send_cot, relay=_tak_relay_cot, broadcast=broadcast_websocket_update,
         upsert_drawing=_tak_upsert_drawing, delete_drawing=_tak_delete_drawing, delete_marker=_tak_delete_marker,
         add_video=_tak_add_video, fetch=_tak_fetch,
+        on_alert=lambda a: tsl and tsl.alert(a), on_report=lambda r: tsl and tsl.report(r),
     )
     app.include_router(_tak_integration.create_router(
         tak_bridge, _tak_current_user, _tak_marti_base_url, _tak_server_host, _tak_ca_pem,
@@ -14429,8 +14461,13 @@ except Exception as _tile_err:
 # Radio transcription (Whisper) – see radio_transcribe.py
 try:
     import radio_transcribe as _radio_transcribe
+    def _radio_broadcast(channel, event, data):
+        broadcast_websocket_update(channel, event, data)
+        if event == "radio_transcript" and tsl:
+            tsl.radio(data)
+
     radio_manager = _radio_transcribe.RadioTranscriber(
-        base_path, broadcast=broadcast_websocket_update, rtl_fm_finder=lambda name: _find_rtl_tool(name))
+        base_path, broadcast=_radio_broadcast, rtl_fm_finder=lambda name: _find_rtl_tool(name))
     app.include_router(_radio_transcribe.create_router(radio_manager, verify_token))
     logger.info("Radio transcription available (faster-whisper=%s)",
                 _radio_transcribe.RadioTranscriber.capabilities()["faster_whisper"])

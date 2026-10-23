@@ -15,5 +15,13 @@
     "sa_multicast_port": 6969,
     "itak_bridge_enabled": false,
     "itak_bridge_port": 8089,
-    "itak_bridge_bind": "127.0.0.1"
+    "itak_bridge_bind": "127.0.0.1",
+    "tsl_url": "",
+    "tsl_api_key": "",
+    "tsl_forward": {
+        "radio": true,
+        "alerts": true,
+        "reports": true,
+        "video_alerts": true
+    }
 }

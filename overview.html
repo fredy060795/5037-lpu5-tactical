@@ -2243,7 +2243,6 @@
           // Cache credentials and token in localStorage
           if (r.token) localStorage.setItem('token', r.token);
           localStorage.setItem('lpu5_cached_user', u);
-          localStorage.setItem('lpu5_cached_pass', p);
           localStorage.setItem('lpu5_username', currentUserName);
           sessionStorage.setItem('currentUser', currentUserName);
           // Auto-update callsign from server
@@ -2269,8 +2268,27 @@
     // Auto-login from cached credentials
     async function tryAutoLogin() {
       const cachedUser = localStorage.getItem('lpu5_cached_user');
-      const cachedPass = localStorage.getItem('lpu5_cached_pass');
-      if (!cachedUser || !cachedPass) {
+      // Passwords are no longer stored in the browser (security); old copies are removed.
+      localStorage.removeItem('lpu5_cached_pass');
+      const cachedToken = localStorage.getItem('token');
+      if (cachedUser && cachedToken) {
+        try {
+          const meRes = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + cachedToken } });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            currentUserName = me.username;
+            localStorage.setItem('lpu5_username', currentUserName);
+            sessionStorage.setItem('currentUser', currentUserName);
+            if (me.callsign) localStorage.setItem('lpu5_local_callsign', me.callsign);
+            document.getElementById('out-name').innerText = currentUserName.toUpperCase();
+            isLoggedIn = true;
+            startDataSync();
+            return true;
+          }
+        } catch (e) { /* offline – handled below */ }
+      }
+      const cachedPass = null;
+      if (!cachedUser || !cachedToken) {
         // No server credentials – check for local-only callsign (Team / offline mode)
         var localCallsign = localStorage.getItem('lpu5_local_callsign');
         if (localCallsign) {
@@ -2283,6 +2301,7 @@
         return false;
       }
       try {
+        if (!cachedPass) throw new Error('session expired or offline');
         const res = await fetch('/api/login_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: cachedUser, password: cachedPass }) });
         if (res.ok) {
           const r = await res.json();
@@ -6086,13 +6105,24 @@
       return d.innerHTML;
     }
 
+    // Server passwords are kept in memory only (never written to localStorage).
+    var _nwPassMemory = {};
     function _nwGetServers() {
-      try { return JSON.parse(localStorage.getItem(_NW_KEY) || '[]'); }
+      var list;
+      try { list = JSON.parse(localStorage.getItem(_NW_KEY) || '[]'); }
       catch(e) { return []; }
+      var migrate = false;
+      list.forEach(function (s) {
+        if (s.pass) { _nwPassMemory[s.id] = s.pass; migrate = true; }
+        else if (_nwPassMemory[s.id]) s.pass = _nwPassMemory[s.id];
+      });
+      if (migrate) _nwSaveServers(list);  // remove passwords stored by older versions
+      return list;
     }
 
     function _nwSaveServers(list) {
-      localStorage.setItem(_NW_KEY, JSON.stringify(list));
+      list.forEach(function (s) { if (s.pass) _nwPassMemory[s.id] = s.pass; });
+      localStorage.setItem(_NW_KEY, JSON.stringify(list.map(function (s) { return Object.assign({}, s, { pass: '' }); })));
     }
 
     function _nwGenId() {
@@ -6457,7 +6487,6 @@
             currentUserName = r.user.username;
             if (r.token) localStorage.setItem('token', r.token);
             localStorage.setItem('lpu5_cached_user', srv.user);
-            localStorage.setItem('lpu5_cached_pass', srv.pass);
             localStorage.setItem('lpu5_username', currentUserName);
             sessionStorage.setItem('currentUser', currentUserName);
             // Auto-update callsign from server
@@ -6503,7 +6532,6 @@
     function _nwCotFallback(srv, servers, silent, msg) {
       currentUserName = srv.user;
       localStorage.setItem('lpu5_cached_user', srv.user);
-      localStorage.setItem('lpu5_cached_pass', srv.pass);
       localStorage.setItem('lpu5_username', srv.user);
       sessionStorage.setItem('currentUser', srv.user);
       document.getElementById('out-name').innerText = srv.user.toUpperCase();
