@@ -795,7 +795,7 @@ async function networkPanel(msg = null) {
     const v = (id) => body.querySelector(id).value.trim();
     const pass = body.querySelector('#reg-pass').value;
     if (pass !== body.querySelector('#reg-pass2').value) { showMsg('Passwörter stimmen nicht überein', 'error'); return; }
-    const weak = network.passwordProblem(pass, v('#reg-user'));
+    const weak = network.usernameProblem(v('#reg-user')) || network.passwordProblem(pass, v('#reg-user'));
     if (weak) { showMsg(weak, 'error'); return; }
     try {
       await network.register(url(), { username: v('#reg-user'), password: pass, callsign: v('#reg-call'), unit: v('#reg-unit'), qrToken: netPrefill.qrToken });

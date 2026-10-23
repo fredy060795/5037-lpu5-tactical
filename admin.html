@@ -849,6 +849,12 @@
     }
 
     // Load pending registrations
+    // New registrations show up without reloading; a running selection or edit is not disturbed.
+    setInterval(() => {
+      const busy = document.querySelector('.pending-checkbox:checked') || (document.activeElement && document.activeElement.classList.contains('pending-unit'));
+      if (!busy && document.getElementById('pendingList') && !document.hidden) loadPendingRegistrations();
+    }, 20000);
+
     async function loadPendingRegistrations() {
       const container = document.getElementById('pendingList');
       if (!container) return;
@@ -872,24 +878,71 @@
           }
         }
         
+        // Pending count next to the section title (also updated by the auto refresh)
+        const title = container.parentElement && container.parentElement.querySelector('h3');
+        if (title) {
+          let badge = document.getElementById('pendingCount');
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.id = 'pendingCount';
+            badge.style.cssText = 'margin-left:8px;padding:2px 9px;border-radius:10px;background:#c0392b;color:#fff;font-size:0.8em;';
+            title.appendChild(badge);
+          }
+          badge.textContent = pending && pending.length ? String(pending.length) : '';
+          badge.style.display = pending && pending.length ? 'inline-block' : 'none';
+        }
+        // Same count on the tab button, so new registrations are seen from any tab
+        const tab = container.closest('.tab-content');
+        const tabName = tab && tab.id ? tab.id.replace(/^tab-/, '') : '';
+        const tabBtn = tabName && Array.from(document.querySelectorAll('.tab-btn')).find(b => (b.getAttribute('onclick') || '').includes(`'${tabName}'`));
+        if (tabBtn) {
+          let tb = tabBtn.querySelector('.pending-tab-count');
+          if (!tb) {
+            tb = document.createElement('span');
+            tb.className = 'pending-tab-count';
+            tb.title = 'Offene Registrierungen';
+            tb.style.cssText = 'margin-left:6px;padding:1px 7px;border-radius:9px;background:#c0392b;color:#fff;font-size:0.8em;';
+            tabBtn.appendChild(tb);
+          }
+          tb.textContent = pending && pending.length ? String(pending.length) : '';
+          tb.style.display = pending && pending.length ? 'inline-block' : 'none';
+        }
+
         if (!pending || pending.length === 0) {
           container.innerHTML = '<div class="small">No pending registrations</div>';
           return;
         }
         
-        container.innerHTML = '';
+        // Registration data comes from a public form: always insert it escaped.
+        const e = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        let unitNames = [];
+        try {
+          const ur = await fetch('/api/units', { headers: getAuthHeaders() });
+          if (ur.ok) { const uj = await ur.json(); unitNames = (Array.isArray(uj) ? uj : (uj.units || [])).map(u => typeof u === 'string' ? u : u.name).filter(Boolean); }
+        } catch (_) { /* unit list is optional */ }
+        container.innerHTML = '<datalist id="pendingUnitList">' + unitNames.map(n => `<option value="${e(n)}">`).join('') + '</datalist>';
         pending.forEach(reg => {
           const div = document.createElement('div');
           div.style.cssText = 'padding:10px; border:1px solid #333; margin-bottom:8px; background:#1a1a1a; border-radius:6px;';
+          const local = !reg.id;
+          const details = [
+            reg.fullname ? e(reg.fullname) : '',
+            reg.source ? `Quelle: ${e(reg.source)}` : (reg.device ? `Gerät: ${e(reg.device)}` : ''),
+            reg.invite ? `Einladung: ${e(reg.invite)}` : '',
+            reg.client_ip ? `IP: ${e(reg.client_ip)}` : '',
+            reg.created_at ? e(new Date(reg.created_at).toLocaleString('de-DE')) : '',
+            local ? '<span style="color:#f39c12">nur in diesem Browser gespeichert</span>' : '',
+          ].filter(Boolean).join(' · ');
           div.innerHTML = `
-            <div style="display:flex; align-items:center; gap:12px;">
-              <input type="checkbox" class="pending-checkbox" data-username="${reg.username || ''}" />
-              <div class="pending-meta" style="flex:1;">
-                <strong>${reg.username || 'N/A'}</strong>
-                ${reg.device ? ` | Device: ${reg.device}` : ''}
-                ${reg.callsign ? ` | Mesh-Callsign: ${reg.callsign}` : ''}
-                ${reg.created_at ? ` | ${new Date(reg.created_at).toLocaleString('en-US')}` : ''}
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; flex:1;">
+              <input type="checkbox" class="pending-checkbox" data-username="${e(reg.username)}" />
+              <div class="pending-meta" style="flex:1; min-width:180px;">
+                <strong>${e(reg.username || 'N/A')}</strong>${reg.callsign ? ` · Rufname: ${e(reg.callsign)}` : ''}
+                <div class="small" style="color:#999;margin-top:3px;">${details}</div>
               </div>
+              <label class="small" style="display:flex;align-items:center;gap:6px;margin-left:auto;">Einheit
+                <input class="pending-unit" data-username="${e(reg.username)}" data-original="${e(reg.unit || '')}" value="${e(reg.unit || '')}" list="pendingUnitList" style="width:140px;padding:5px;background:#000;color:#fff;border:1px solid #444;border-radius:4px;">
+              </label>
             </div>
           `;
           container.appendChild(div);
@@ -924,13 +977,16 @@
       const results = [];
       for (const username of usernames) {
         try {
+          // Unit corrected by the admin in the list (only sent when changed)
+          const unitInput = Array.from(document.querySelectorAll('.pending-unit')).find(i => i.dataset.username === username);
+          const unit = unitInput && unitInput.value.trim() !== (unitInput.dataset.original || '') ? unitInput.value.trim() : undefined;
           const res = await fetch('/api/approve_registration', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...getAuthHeaders()
             },
-            body: JSON.stringify({ username: username })
+            body: JSON.stringify({ username: username, unit: unit })
           });
           const body = await res.json().catch(() => null);
           if (res.ok) {

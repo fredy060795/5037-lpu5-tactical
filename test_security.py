@@ -95,3 +95,20 @@ def test_static_files_allow_list(tmp_path):
     for bad in ["config.json", "secret.key", "api.py", "tactical.db", "radio_log/funklog.sqlite3",
                 "lpu5-ca-key.pem", "users_db.json", "../outside.html", "vendor/../../outside.html", ".git/config"]:
         assert not ok(bad), bad
+
+
+def test_pending_registrations_only_for_admins():
+    p = policy(USERS)
+    ext = "10.0.0.9"
+    assert p.check("GET", "/api/pending_registrations", ext, None, "")[0] == 401
+    assert p.check("GET", "/api/pending_registrations", ext, "user", "header")[0] == 403
+    assert p.check("GET", "/api/pending_registrations", ext, "admin", "header") is None
+    assert p.check("GET", "/api/pending_registrations", "127.0.0.1", None, "") is None  # trusted local console
+    assert p.check("POST", "/api/register_user", ext, None, "") is None  # registering stays public
+
+
+def test_username_rules():
+    assert sec.username_problem("feld1") is None
+    assert sec.username_problem("Alpha-1.ops_2") is None
+    for bad in ("", "a", "<img src=x>", "with space", "-dash", "x" * 33):
+        assert sec.username_problem(bad), bad

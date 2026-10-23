@@ -157,7 +157,7 @@
                 <div class="row">
                     <div class="col">
                         <label for="password">Password</label>
-                        <input id="password" name="password" type="password" required placeholder="At least 6 characters" />
+                        <input id="password" name="password" type="password" required placeholder="Mindestens 8 Zeichen" minlength="8" />
                     </div>
                     <div class="col">
                         <label for="passwordConfirm">Repeat Password</label>
@@ -393,7 +393,7 @@
                 const callsign = document.getElementById('callsign').value.trim();
 
                 if (!username) { showStatus('Please enter a username.', 'error'); return; }
-                if (!password || password.length < 6) { showStatus('Password must be at least 6 characters.', 'error'); return; }
+                if (!password || password.length < 8) { showStatus('Passwort: mindestens 8 Zeichen.', 'error'); return; }
                 if (password !== passwordConfirm) { showStatus('Passwords do not match.', 'error'); return; }
                 if (!callsign) { showStatus('Please enter a Mesh-Callsign.', 'error'); return; }
 
@@ -444,8 +444,14 @@
                         return;
                     }
 
-                    // If server responded but not ok: store locally as fallback so admin can import
                     const reason = body && (body.detail || body.message) ? (body.detail || body.message) : ('Server responded with ' + (res.status || 'error'));
+                    // Rejected by the server (name taken, weak password, invalid QR…): show why –
+                    // keeping it only on this device would never reach the admin.
+                    if (res.status >= 400 && res.status < 500) {
+                        showStatus('Registrierung abgelehnt: ' + reason, 'error');
+                        return;
+                    }
+                    // Server error: note it on this device so it is not lost, and say so honestly
                     // store fallback (include device)
                     addPendingReg({
                         username, device, callsign,
@@ -455,7 +461,7 @@
                         created_at: Date.now(),
                         note: 'fallback_saved_due_to_server_error: ' + reason
                     });
-                    showStatus('Server reported error — Registration saved locally and available for approval in Admin.', 'ok');
+                    showStatus('Serverfehler (' + reason + ') – die Registrierung ist noch NICHT beim Admin angekommen. Bitte später erneut senden oder den Admin informieren.', 'error');
                 } catch (err) {
                     // network error -> local fallback
                     console.error('Network/register error:', err);
@@ -467,7 +473,7 @@
                         created_at: Date.now(),
                         note: 'network_fallback'
                     });
-                    showStatus('Network error — Registration saved locally. Admin can import this.', 'ok');
+                    showStatus('Server nicht erreichbar – die Registrierung ist noch NICHT beim Admin angekommen. WLAN/Serveradresse prüfen und erneut senden.', 'error');
                 } finally {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Register';

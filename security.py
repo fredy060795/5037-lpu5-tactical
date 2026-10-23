@@ -88,6 +88,16 @@ def needs_rehash(stored: str) -> bool:
     return not (stored or "").startswith(f"pbkdf2_sha256${PBKDF2_ITERATIONS}$")
 
 
+USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$")
+
+
+def username_problem(username: str) -> Optional[str]:
+    """Usernames are also TAK/certificate names: 2–32 letters, digits, . _ -"""
+    if not USERNAME_RE.match(username or ""):
+        return "Benutzername: 2–32 Zeichen, nur Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich"
+    return None
+
+
 def password_problem(password: str, username: str = "") -> Optional[str]:
     if not password or len(password) < MIN_PASSWORD_LENGTH:
         return f"Passwort muss mindestens {MIN_PASSWORD_LENGTH} Zeichen haben"
@@ -166,6 +176,11 @@ ADMIN_WRITE = [
     r"^/api/eud/wipe$",
 ]
 
+# Reads only admins/operators may see (personal data of other people).
+ADMIN_READ = [
+    r"^/api/pending_registrations$",
+]
+
 # Paths where a short-lived media token is accepted.
 MEDIA_PATHS = [
     r"^/api/video/streams/[^/]+/(mjpeg|snapshot\.jpg)$",
@@ -241,6 +256,8 @@ class SecurityPolicy:
                 return 401, "Anmeldung erforderlich"
         else:
             if not payload:
+                if _match(path, ADMIN_READ) and not (local and cfg.get("trust_localhost", True)):
+                    return 401, "Anmeldung erforderlich"
                 if cfg.get("require_auth_for_reads", False) and not _match(path, PUBLIC_READ) and not local:
                     return 401, "Anmeldung erforderlich"
                 return None
@@ -253,6 +270,8 @@ class SecurityPolicy:
         if u and u.get("must_change_password") and not _match(path, ALLOWED_DURING_PASSWORD_CHANGE):
             if write or path.startswith("/api/"):
                 return 403, "PASSWORD_CHANGE_REQUIRED"
+        if not write and _match(path, ADMIN_READ) and (u or {}).get("role") not in ("admin", "operator"):
+            return 403, "Nur für Administratoren"
         if write and _match(path, ADMIN_WRITE) and (u or {}).get("role") not in ("admin", "operator"):
             # Users may still change their own profile and password via the self-service endpoints.
             if not re.search(r"^/api/users/(me|self)(/|$)", path):

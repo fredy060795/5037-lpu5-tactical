@@ -73,6 +73,12 @@ export function parseServerQr(text) {
 
 const WEAK = ['password', 'admin', 'administrator', '123456', 'lpu5'];
 
+/** Same rule as the server (security.py): usernames are also TAK/certificate names. */
+export function usernameProblem(username) {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/.test(username || '') ? null
+    : 'Benutzername: 2–32 Zeichen, nur Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich';
+}
+
 /** Same rules as the server's password check (security.py); null when fine. */
 export function passwordProblem(password, username = '') {
   if (!password || password.length < 8) return 'Passwort muss mindestens 8 Zeichen haben';

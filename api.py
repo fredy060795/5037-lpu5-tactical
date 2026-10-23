@@ -82,6 +82,7 @@ Base.metadata.create_all(bind=engine)
 
 # Migrate existing tables: add missing columns that create_all() won't add to existing tables
 from sqlalchemy import text as sa_text, inspect as sa_inspect
+from sqlalchemy import func
 _inspector = sa_inspect(engine)
 if "chat_messages" in _inspector.get_table_names():
     _existing_cols = {c["name"] for c in _inspector.get_columns("chat_messages")}
@@ -3296,7 +3297,10 @@ async def create_user_legacy(data: dict = Body(...), db: Session = Depends(get_d
         group_id=group_id or "users",
         role="user",
         is_active=True,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.now(timezone.utc),
+        # The admin knows this password: the user picks their own at first login
+        # (opt out with "must_change_password": false, e.g. for service accounts).
+        data={"must_change_password": bool(data.get("must_change_password", True))},
     )
     db.add(new_user)
     db.commit()
@@ -3469,14 +3473,17 @@ def _as_utc(value: datetime) -> datetime:
 
 
 @app.post("/api/register_user")
-async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
+async def register_user(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     username = (data.get("username") or "").strip()
     password = data.get("password")
     unit = data.get("unit") or data.get("device") or None
-    callsign = data.get("callsign") or None
+    callsign = (data.get("callsign") or "").strip()[:40] or None
     qr_token = data.get("qr_token")
     if not username or not password:
-        raise HTTPException(status_code=400, detail="Required fields missing (username, password)")
+        raise HTTPException(status_code=400, detail="Benutzername und Passwort sind erforderlich")
+    problem = _security.username_problem(username) or _security.password_problem(password, username)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
     
     # Resolve unit: accept unit name from registration form; fall back to "General"
     unit_name = unit or "General"
@@ -3497,14 +3504,17 @@ async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
         
         qr.uses += 1
         db.commit()
+        invite_label = (qr.data or {}).get("label") or "QR"
+    else:
+        invite_label = None
 
-    # Check if user already exists
-    if db.query(User).filter(User.username == username).first():
-        raise HTTPException(status_code=400, detail="Username already exists")
+    # Check if user already exists (case-insensitive: TAK and certificates do not distinguish)
+    if db.query(User).filter(func.lower(User.username) == username.lower()).first():
+        raise HTTPException(status_code=400, detail="Benutzername ist bereits vergeben")
         
     # Check if registration already pending
-    if db.query(PendingRegistration).filter(PendingRegistration.username == username).first():
-        raise HTTPException(status_code=400, detail="Registration already pending")
+    if db.query(PendingRegistration).filter(func.lower(PendingRegistration.username) == username.lower()).first():
+        raise HTTPException(status_code=400, detail="Für diesen Benutzernamen wartet bereits eine Registrierung auf Freigabe")
 
     registration = PendingRegistration(
         id=str(uuid.uuid4()),
@@ -3524,6 +3534,9 @@ async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
             "tak_team": data.get("tak_team") or "Cyan",
             "tak_role": data.get("tak_role") or "Team Member",
             "tak_display_type": data.get("tak_display_type") or "General Ground Unit",
+            "source": "EUD-App" if data.get("device") == "EUD" else "Web",
+            "invite": invite_label,
+            "client_ip": _get_client_ip(request) if request else None,
         }
     )
     db.add(registration)
@@ -3560,9 +3573,12 @@ async def approve_registration(data: dict = Body(...), db: Session = Depends(get
         raise HTTPException(status_code=404, detail="Registration not found")
     
     reg_data = reg.data or {}
-    # Resolve unit_id
-    unit_name = reg_data.get("unit")
-    unit_id = reg_data.get("unit_id")
+    # Resolve unit_id (the admin may assign a different unit while approving)
+    chosen_unit = (data.get("unit") or "").strip()
+    if chosen_unit and not db.query(Unit).filter(Unit.name == chosen_unit).first():
+        raise HTTPException(status_code=400, detail=f"Einheit „{chosen_unit}“ existiert nicht – zuerst anlegen")
+    unit_name = chosen_unit or reg_data.get("unit")
+    unit_id = None if chosen_unit else reg_data.get("unit_id")
     if unit_name and not unit_id:
         unit_obj = db.query(Unit).filter(Unit.name == unit_name).first()
         unit_id = unit_obj.id if unit_obj else None

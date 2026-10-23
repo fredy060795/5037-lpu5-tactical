@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const src = (await import('node:fs')).readFileSync(new URL('../src/network.js', import.meta.url), 'utf8');
 const pure = src.slice(src.indexOf('export function normaliseUrl'), src.indexOf('// ---- Saved servers (no'));
 const mod = await import(`data:text/javascript,${encodeURIComponent(pure)}`);
-const { parseServerQr, normaliseUrl, passwordProblem } = mod;
+const { parseServerQr, normaliseUrl, passwordProblem, usernameProblem } = mod;
 
 test('join QR from the LPU5 main view', () => {
   const r = parseServerQr(JSON.stringify({ type: 'join', protocol: 'https', host: '192.168.8.10', port: 8101, ssl: true }));
@@ -51,4 +51,10 @@ test('registration password rules match the server', () => {
   assert.match(passwordProblem('password'), /leicht/);
   assert.match(passwordProblem('feldwebel1', 'Feldwebel1'), /leicht/);
   assert.equal(passwordProblem('Bravo-Sieben-77', 'feld2'), null);
+});
+
+test('username rules match the server', () => {
+  assert.equal(usernameProblem('feld1'), null);
+  assert.ok(usernameProblem('<img src=x>'));
+  assert.ok(usernameProblem('a'));
 });

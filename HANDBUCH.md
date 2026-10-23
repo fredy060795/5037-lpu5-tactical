@@ -91,6 +91,23 @@ nicht gesendete Meldungen gehen dabei verloren (die App fragt vorher).
 Die bisherige Feldansicht `overview.html` bleibt verfügbar; Admins/Operatoren kommen über
 den Knopf 🖥 in der Kopfleiste (oder Alt+H) zurück zur Hauptansicht.
 
+### Registrierungen verwalten (Admin)
+Neue Konten kommen über die EUD-App („Server“ → Registrieren), `register.html` oder einen
+Einladungs-QR (Admin-Seite → „CREATE QR CODE“, Ziel `register.html`, mit Nutzungszahl und
+Ablaufdatum).
+- Offene Anträge stehen in der Admin-Seite bzw. Hauptansicht → Verwaltung → Reiter
+  „CREATE QR CODE“ → „Approve Users“. Die Zahl offener Anträge steht am Reiter. Die Liste
+  aktualisiert sich alle 20 s von selbst.
+- Pro Antrag sichtbar: Benutzername, Rufname, Name, Quelle (EUD-App/Web), benutzte Einladung,
+  IP-Adresse, Zeitpunkt. Die **Einheit** kann vor der Freigabe korrigiert werden; sie muss
+  vorher angelegt sein.
+- Der Server lehnt schwache Passwörter (unter 8 Zeichen, Standardpasswörter, Passwort =
+  Benutzername), ungültige Benutzernamen, doppelte Namen und abgelaufene oder aufgebrauchte
+  Einladungen ab; der Antragsteller sieht den Grund.
+- Die Liste offener Anträge können nur Admins/Operatoren abrufen.
+- Konten, die ein Admin direkt anlegt, müssen beim ersten Login ein eigenes Passwort wählen
+  (für Dienstkonten über die API mit `"must_change_password": false` abschaltbar).
+
 ## 3. ATAK / WinTAK / iTAK
 
 | Richtung | Inhalt |
