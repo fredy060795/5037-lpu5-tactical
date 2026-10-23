@@ -21,6 +21,7 @@ import * as mesh from './mesh.js';
 import * as trust from './trust.js';
 import * as ops from './ops.js';
 import * as lockMod from './lock.js';
+import * as geofence from './geofence.js';
 
 const $ = (id) => document.getElementById(id);
 const STALE_MS = 5 * 60 * 1000;
@@ -51,6 +52,11 @@ async function boot() {
   await geo.restoreLastFix();
 
   initMap();
+  applyDisplaySettings();
+  await geofence.init(app.map, (text) => {
+    toast(`⚠ Geofence – ${text}`, 8000);
+    if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]);
+  });
   await lockMod.lock();          // PIN before anything is shown
   lockMod.installAutoLock();
   await renderAll();
@@ -473,6 +479,7 @@ function bindSync() {
   let renderQueued = false;
   sync.on('data', (d) => {
     if (d.overlays || d.drawings || d.full) renderOverlays();
+    if (d.full) geofence.refresh();
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; renderMarkers(); });
@@ -486,6 +493,7 @@ function bindSync() {
   sync.on('radio', (e) => panels.onRadio(e));
   sync.on('detection', (d) => panels.onDetection(d));
   sync.on('alert', (a) => ops.onAlert(a));
+  sync.on('geofence', () => geofence.refresh());
   sync.on('report', (r) => ops.onReport(r));
   sync.on('package', (p) => ops.onPackage(p));
   sync.on('password-required', () => { if ($('pw-dialog').classList.contains('hidden')) forcePasswordChange(); });
@@ -495,7 +503,7 @@ function bindSync() {
     await lockMod.wipeLocal('Die Einsatzzentrale hat die Löschung dieses Geräts angeordnet.');
   });
 
-  geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); });
+  geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); geofence.check(fix); });
   mesh.on('data', () => renderMarkers());
   mesh.on('text', (msg) => panels.onMeshText(msg));
   mesh.on('status', (st) => {
@@ -525,6 +533,12 @@ export function toast(text, ms = 3000) {
 }
 
 export function centerReadout() { updateCenterReadout(); }
+
+/** Night mode (red, dimmed) and large controls for gloves. */
+export function applyDisplaySettings() {
+  document.body.classList.toggle('night', store.setting('displayMode', 'normal') === 'night');
+  document.body.classList.toggle('large-ui', Boolean(store.setting('largeUi', false)));
+}
 export { renderTrack, escapeHtml };
 
 boot().catch((e) => {

@@ -174,3 +174,19 @@ video.preview { width: 100%; border-radius: 8px; background: #000; max-height: 3
 .pin-dots { text-align: center; font-size: 26px; letter-spacing: .3em; min-height: 36px; }
 .pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
 .pin-pad .btn { font-size: 22px; padding: 14px 0; }
+
+/* Night mode: red light, dimmed – preserves night vision */
+body.night { --bg: #000; --panel: rgba(12, 0, 0, 0.95); --panel-solid: #0c0000; --line: #3a0b0b; --text: #ff5a4a; --muted: #a83a30;
+  --accent: #ff3b2b; --warn: #ff6a3a; --friend: #ff7a6a; }
+body.night #map .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(0.45) sepia(1) hue-rotate(-50deg) saturate(6) contrast(1.1); }
+body.night .mil-icon svg, body.night .dot-icon, body.night .self-icon { filter: sepia(1) hue-rotate(-50deg) saturate(5) brightness(0.8); }
+body.night #statusbar, body.night #coords span { background: #050000; }
+body.night .link.online { background: #2a0505; color: #ff5a4a; }
+body.night .btn.primary { background: #4a0a0a; border-color: #ff3b2b; }
+/* Large controls (gloves) */
+body.large-ui { font-size: 17px; }
+body.large-ui #toolbar button { width: 62px; height: 62px; font-size: 26px; }
+body.large-ui #toolbar { right: 6px; }
+body.large-ui .btn { padding: 14px 16px; }
+body.large-ui .list li { padding: 14px 2px; }
+body.large-ui #measure-bar, body.large-ui #alert-banner { right: 78px; }

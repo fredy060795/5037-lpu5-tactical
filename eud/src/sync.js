@@ -27,7 +27,7 @@ let pingTimer = null;
 let flushing = false;
 let lastPositionSent = 0;
 
-const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics', 'radio', 'alerts', 'reports', 'packages'];
+const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics', 'radio', 'alerts', 'reports', 'packages', 'geofence'];
 
 export async function init() {
   const auth = (await store.get('kv', 'auth')) || {};
@@ -285,6 +285,11 @@ async function handleMessage(msg) {
       break;
     case 'alert':
       emit('alert', d);
+      break;
+    case 'geofence_created':
+    case 'geofence_updated':
+    case 'geofence_deleted':
+      emit('geofence', d);
       break;
     case 'report':
       emit('report', d);

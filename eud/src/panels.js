@@ -9,10 +9,11 @@ import * as mesh from './mesh.js';
 import * as camera from './camera.js';
 import * as ops from './ops.js';
 import * as lockMod from './lock.js';
+import * as geofence from './geofence.js';
 import { BASEMAPS, countTiles, downloadArea, importMBTiles, clearTiles, tileStats } from './tiles.js';
 import { AFFILIATIONS, FUNCTIONS, buildSidc, sidcFor, symbolPreview, escapeHtml } from './symbols.js';
 import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } from './geoutil.js';
-import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout, forcePasswordChange } from './main.js';
+import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout, forcePasswordChange, applyDisplaySettings } from './main.js';
 
 const $ = (id) => document.getElementById(id);
 let current = null;
@@ -160,6 +161,7 @@ async function layersPanel() {
       ${o.source === 'local' ? `<button class="btn small" data-zoom="${escapeHtml(o.id)}">⌖</button><button class="btn small" data-rm="${escapeHtml(o.id)}">✕</button>` : ''}</li>`).join('') : '<li class="muted">Keine Overlays</li>'}</ul>
     <label class="check"><input type="checkbox" id="ly-drawings" ${store.setting('showDrawings', true) ? 'checked' : ''}> Zeichnungen vom Server</label>
     <label class="check"><input type="checkbox" id="ly-track" ${store.setting('showTrack', true) ? 'checked' : ''}> Eigene Spur anzeigen</label>
+    <label class="check"><input type="checkbox" id="ly-geo" ${store.setting('showGeofences', true) ? 'checked' : ''}> Geofences (${geofence.list().length})</label>
     <div class="row"><button class="btn primary grow" id="ly-import">Datei importieren (KML/KMZ/GPX/GeoJSON/MBTiles)</button></div>
   `);
   body.querySelectorAll('input[name=bm]').forEach((r) => { r.onchange = () => { store.saveSetting('basemapChosen', true); setBasemap(r.value); }; });
@@ -182,6 +184,7 @@ async function layersPanel() {
   });
   body.querySelector('#ly-drawings').onchange = async (e) => { await store.saveSetting('showDrawings', e.target.checked); renderOverlays(); };
   body.querySelector('#ly-track').onchange = async (e) => { await store.saveSetting('showTrack', e.target.checked); renderTrack(); };
+  body.querySelector('#ly-geo').onchange = (e) => geofence.setVisible(e.target.checked);
   body.querySelector('#ly-import').onclick = () => pickFile(handleImport);
 }
 
@@ -567,6 +570,10 @@ function settingsPanel() {
     <label>Koordinatenformat<select id="st-fmt">
       ${[['mgrs', 'MGRS / UTMREF'], ['dd', 'Dezimalgrad'], ['dms', 'Grad Min Sek']].map(([v, l]) => `<option value="${v}" ${s('coordFormat', 'mgrs') === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select></label>
+    <label>Darstellung<select id="st-mode">
+      ${[['normal', 'Normal (dunkel)'], ['night', 'Nacht (Rotlicht, gedimmt)']].map(([v, l]) => `<option value="${v}" ${s('displayMode', 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select></label>
+    <label class="check"><input type="checkbox" id="st-large" ${s('largeUi', false) ? 'checked' : ''}> Große Bedienelemente (Handschuhe)</label>
     <label class="check"><input type="checkbox" id="st-cross" ${s('crosshair', true) ? 'checked' : ''}> Fadenkreuz in Kartenmitte</label>
     <label class="check"><input type="checkbox" id="st-awake" ${s('keepAwake', true) ? 'checked' : ''}> Bildschirm anlassen</label>
     <h3>Eigener Kartenserver (XYZ)</h3>
@@ -601,6 +608,8 @@ function settingsPanel() {
   body.querySelector('#st-cleartrack').onclick = async () => { if (confirm('Aufgezeichnete Spur löschen?')) { await clearTrack(); toast('Spur gelöscht'); } };
   body.querySelector('#st-fmt').onchange = async (e) => { await store.saveSetting('coordFormat', e.target.value); centerReadout(); };
   body.querySelector('#st-cross').onchange = (e) => { store.saveSetting('crosshair', e.target.checked); $('crosshair').classList.toggle('hidden', !e.target.checked); };
+  body.querySelector('#st-mode').onchange = async (e) => { await store.saveSetting('displayMode', e.target.value); applyDisplaySettings(); };
+  body.querySelector('#st-large').onchange = async (e) => { await store.saveSetting('largeUi', e.target.checked); applyDisplaySettings(); };
   body.querySelector('#st-awake').onchange = (e) => store.saveSetting('keepAwake', e.target.checked);
   body.querySelector('#st-tiles-save').onclick = async () => {
     const url = body.querySelector('#st-tiles').value.trim();
