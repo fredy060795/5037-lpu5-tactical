@@ -287,7 +287,10 @@ def get_local_ip():
     return primary_ip, []
 
 # JWT settings (development use only)
-JWT_SECRET = "LPU5-TACTICAL-SECRET-KEY-2024"
+import security as _security
+# Per-installation secret (secret.key, not in git) – the previous key was
+# public in the source code, which allowed anyone to forge login tokens.
+JWT_SECRET = _security.load_or_create_secret(os.path.dirname(os.path.abspath(__file__)))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -548,10 +551,37 @@ async def lifespan(application):
             logger.error(f"Error stopping data server: {e}")
 
 app = FastAPI(title="LPU5 Tactical Tracker API", version="2.1.0", lifespan=lifespan)
+
+
+def _security_lookup_user(username: str):
+    with SessionLocal() as _db:
+        u = _db.query(User).filter(User.username == username).first()
+        if not u:
+            return None
+        return {"role": u.role, "is_active": u.is_active,
+                "must_change_password": bool((u.data or {}).get("must_change_password"))}
+
+
+def _security_decode(token: str):
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        return None
+
+
+_security_policy = _security.SecurityPolicy(
+    decode=_security_decode,
+    lookup_user=_security_lookup_user,
+    settings=lambda: (load_json("config") or {}).get("security", {}),
+)
+_LOGIN_LIMITER = _security.LoginLimiter()
+# Installed before CORS so that CORS headers are also added to 401/403 answers.
+_security.install(app, _security_policy)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # Auth uses bearer tokens, not cookies – never send credentials cross-origin.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -620,7 +650,16 @@ if DATA_SERVER_AVAILABLE:
         DATA_SERVER_AVAILABLE = False
 
 # Mount static directories
-app.mount("/static", StaticFiles(directory=base_path), name="static")
+class _SafeStaticFiles(StaticFiles):
+    """StaticFiles for the program folder, limited to web assets (see security.py)."""
+
+    async def get_response(self, path, scope):
+        if not _security.static_path_allowed(base_path, path):
+            raise HTTPException(status_code=404, detail="Not found")
+        return await super().get_response(path, scope)
+
+
+app.mount("/static", _SafeStaticFiles(directory=base_path), name="static")
 assets_dir = os.path.join(base_path, "assets")
 if os.path.isdir(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -719,10 +758,10 @@ def save_json(key: str, data: Any) -> None:
 # Utility
 # -------------------------
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return _security.hash_password(password)
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return hash_password(password) == password_hash
+    return _security.verify_password(password, password_hash)
 
 def generate_token(user_id: str, username: str) -> str:
     payload = {
@@ -1037,6 +1076,7 @@ def ensure_default_admin():
                     role="admin",
                     group_id="admins",
                     is_active=True,
+                    data={"must_change_password": True},
                     created_at=datetime.now(timezone.utc)
                 )
                 db.add(default_user)
@@ -2836,11 +2876,27 @@ async def login_user(data: dict = Body(...), request: Request = None, db: Sessio
     password = data.get("password") or ""
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
-    
+
+    client_ip_rl = request.client.host if request and request.client else ""
+    wait = _LOGIN_LIMITER.blocked(client_ip_rl, username)
+    if wait:
+        raise HTTPException(status_code=429, detail=f"Zu viele Fehlversuche – bitte {wait} s warten")
+
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.password_hash):
+        _LOGIN_LIMITER.failed(client_ip_rl, username)
         log_audit("login_failed", "system", {"username": username})
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    _LOGIN_LIMITER.succeeded(client_ip_rl, username)
+
+    # Upgrade legacy unsalted hashes; flag accounts still using a default password.
+    if _security.needs_rehash(user.password_hash):
+        user.password_hash = hash_password(password)
+    if password.lower() in _security.DEFAULT_PASSWORDS:
+        flagged = dict(user.data or {})
+        flagged["must_change_password"] = True
+        user.data = flagged
+    db.commit()
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
@@ -2887,7 +2943,92 @@ async def login_user(data: dict = Body(...), request: Request = None, db: Sessio
         "data": user.data
     }
 
-    return {"status": "success", "user": user_info, "token": token, "expires_at": expires_at}
+    _security_policy.invalidate(user.username)
+    return {"status": "success", "user": user_info, "token": token, "expires_at": expires_at,
+            "must_change_password": bool((user.data or {}).get("must_change_password"))}
+
+@app.post("/api/change_password")
+async def change_own_password(data: dict = Body(...), authorization: Optional[str] = Header(None),
+                              request: Request = None, db: Session = Depends(get_db)):
+    """Change the own password (also used for the forced change after first login).
+    Accepts a session token or username + old password."""
+    old_pw = data.get("old_password") or ""
+    new_pw = data.get("new_password") or ""
+    user = None
+    if authorization:
+        payload = verify_token(authorization[7:].strip() if authorization.lower().startswith("bearer ") else authorization)
+        if payload:
+            user = db.query(User).filter(User.username == payload.get("username")).first()
+    if user is None:
+        user = db.query(User).filter(User.username == (data.get("username") or "").strip()).first()
+    ip = request.client.host if request and request.client else ""
+    if not user or not verify_password(old_pw, user.password_hash):
+        if user:
+            _LOGIN_LIMITER.failed(ip, user.username)
+        raise HTTPException(status_code=401, detail="Bisheriges Passwort falsch")
+    problem = _security.password_problem(new_pw, user.username)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    if new_pw == old_pw:
+        raise HTTPException(status_code=400, detail="Neues Passwort muss sich unterscheiden")
+    user.password_hash = hash_password(new_pw)
+    flagged = dict(user.data or {})
+    flagged.pop("must_change_password", None)
+    user.data = flagged
+    db.commit()
+    _security_policy.invalidate(user.username)
+    log_audit("change_password", user.id, {"username": user.username})
+    return {"status": "success"}
+
+
+@app.post("/api/media_token")
+def issue_media_token(authorization: Optional[str] = Header(None)):
+    """Short-lived token (10 min) for URLs of video, audio and downloads, so the
+    session token never appears in URLs and server logs."""
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else authorization
+    payload = verify_token(token) if token else None
+    if not payload or payload.get("scope") == "media":
+        raise HTTPException(status_code=401, detail="Anmeldung erforderlich")
+    media = jwt.encode({"user_id": payload.get("user_id"), "username": payload.get("username"), "scope": "media",
+                        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+                        "iat": datetime.now(timezone.utc)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {"token": media, "expires_in": 600}
+
+
+@app.post("/api/eud/wipe")
+def request_eud_wipe(data: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin: erase the offline data on all EUDs of a user at their next connection
+    (lost or captured device). The user's sessions are revoked as well."""
+    user = db.query(User).filter(User.username == (data.get("username") or "")).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    flagged = dict(user.data or {})
+    flagged["wipe_requested"] = bool(data.get("wipe", True))
+    if flagged["wipe_requested"]:
+        flagged["wipe_requested_at"] = datetime.now(timezone.utc).isoformat()
+    user.data = flagged
+    db.commit()
+    log_audit("eud_wipe_requested", "admin", {"username": user.username, "wipe": flagged["wipe_requested"]})
+    return {"status": "success", "wipe_requested": flagged["wipe_requested"]}
+
+
+@app.post("/api/eud/wipe/confirm")
+def confirm_eud_wipe(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Called by the EUD after it erased its local data."""
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else authorization
+    payload = verify_token(token) if token else None
+    if not payload:
+        raise HTTPException(status_code=401, detail="Anmeldung erforderlich")
+    user = db.query(User).filter(User.username == payload.get("username")).first()
+    if user:
+        flagged = dict(user.data or {})
+        flagged["wipe_requested"] = False
+        flagged["wipe_confirmed_at"] = datetime.now(timezone.utc).isoformat()
+        user.data = flagged
+        db.commit()
+        log_audit("eud_wipe_confirmed", user.id, {"username": user.username})
+    return {"status": "success"}
+
 
 @app.post("/api/logout")
 async def logout(data: dict = Body(...)):
@@ -2947,7 +3088,9 @@ def api_me(authorization: Optional[str] = Header(None), db: Session = Depends(ge
         "tak_team": user.tak_team or "Cyan",
         "tak_role": user.tak_role or "Team Member",
         "tak_display_type": user.tak_display_type or "General Ground Unit",
-        "data": user.data
+        "data": user.data,
+        "must_change_password": bool((user.data or {}).get("must_change_password")),
+        "wipe_requested": bool((user.data or {}).get("wipe_requested")),
     }
 
 # -------------------------
@@ -3287,8 +3430,13 @@ async def change_user_password_admin(user_id: str, data: dict = Body(...), db: S
         raise HTTPException(status_code=404, detail="User not found")
     
     user.password_hash = hash_password(new_password)
+    # Password set by an admin is temporary: the user chooses their own at next login.
+    flagged = dict(user.data or {})
+    flagged["must_change_password"] = True
+    user.data = flagged
     db.commit()
-    
+    _security_policy.invalidate(user.username)
+
     log_audit("admin_change_password", "system", {"user_id": user_id})
     return {"status": "success", "message": "Password changed"}
 
@@ -7433,7 +7581,8 @@ async def api_tak_logins_auth_claim(data: dict = Body(...), db: Session = Depend
 # --- TAK Login Certificate (.p12) Generation ---
 
 @app.post("/api/tak_logins/generate_p12")
-def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Depends(get_db)):
+def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Depends(get_db),
+                                authorization: Optional[str] = Header(None)):
     """Generate an ATAK-compatible certificate data package (ZIP).
 
     The ZIP contains:
@@ -7464,6 +7613,24 @@ def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Dep
             status_code=500,
             detail="cryptography package not available – cannot generate certificates",
         )
+
+    # Without an admin session the caller must prove the TAK password of the
+    # login it requests a certificate for (self-service via tak_login.html).
+    _caller = _tak_current_user(authorization) if authorization else None
+    if not (_caller and _caller.get("role") in ("admin", "operator")):
+        _req_user = (data.get("username") or "").strip()
+        _req_pw = data.get("password") or ""
+        _known = None
+        if _req_user:
+            _u = db.query(User).filter(User.username == _req_user).first()
+            _known = (_u.data or {}).get("tak_server_password") if _u else None
+            if not _known:
+                _entries = load_json("tak_logins")
+                _match = next((e for e in (_entries if isinstance(_entries, list) else [])
+                               if (e.get("username") or "").lower() == _req_user.lower()), None)
+                _known = _match.get("password") if _match else None
+        if not (_req_user and _req_pw and _known and secrets.compare_digest(str(_known), str(_req_pw))):
+            raise HTTPException(status_code=403, detail="Benutzername und TAK-Passwort erforderlich")
 
     settings = _get_tak_login_settings()
     cn = data.get("username") or settings.get("display_name") or "LPU5-Client"
@@ -14310,14 +14477,16 @@ def catch_all(full_path: str, request: Request):
     if full_path in _SPA_VIEWS:
         return RedirectResponse(url=f"/index.html#{_SPA_VIEWS[full_path]}", status_code=302)
 
-    candidate = os.path.join(base_path, full_path)
-    if os.path.isfile(candidate):
+    # Only web assets inside the program folder – never databases, configs,
+    # keys, source code or anything outside base_path (path traversal).
+    candidate = _security.static_path_allowed(base_path, full_path)
+    if candidate and os.path.isfile(candidate):
         ext = os.path.splitext(candidate)[1].lower()
         if ext == ".html":
             return FileResponse(candidate, media_type="text/html")
         return FileResponse(candidate)
-    candidate_index = os.path.join(candidate, "index.html")
-    if os.path.isfile(candidate_index):
+    candidate_index = _security.static_path_allowed(base_path, full_path.rstrip("/") + "/index.html")
+    if candidate_index and os.path.isfile(candidate_index):
         return FileResponse(candidate_index, media_type="text/html")
     raise HTTPException(status_code=404, detail=f"File {full_path} not found. Please use .html extension.")
 
