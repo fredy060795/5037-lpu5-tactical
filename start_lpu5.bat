@@ -11,25 +11,42 @@ echo ========================================
 echo.
 
 REM ── Detect a working Python command ──────────────────────────────────────
+REM Prefer a Python version for which all packages exist (Meshtastic, Whisper,
+REM YOLO). The newest Python often has no packages yet. Override with e.g.
+REM   set LPU5_PYTHON=py -3.12
 set "PYTHON_CMD="
-where py >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3"
-) else (
-    where python3 >nul 2>&1
+if defined LPU5_PYTHON set "PYTHON_CMD=%LPU5_PYTHON%"
+if not defined PYTHON_CMD (
+    where py >nul 2>&1
     if not errorlevel 1 (
-        set "PYTHON_CMD=python3"
+        for %%V in (3.13 3.12 3.14 3.11) do (
+            if not defined PYTHON_CMD (
+                py -%%V -c "import sys" >nul 2>&1
+                if not errorlevel 1 set "PYTHON_CMD=py -%%V"
+            )
+        )
+    )
+)
+if not defined PYTHON_CMD (
+    where py >nul 2>&1
+    if not errorlevel 1 (
+        set "PYTHON_CMD=py -3"
     ) else (
-        where python >nul 2>&1
+        where python3 >nul 2>&1
         if not errorlevel 1 (
-            set "PYTHON_CMD=python"
+            set "PYTHON_CMD=python3"
+        ) else (
+            where python >nul 2>&1
+            if not errorlevel 1 (
+                set "PYTHON_CMD=python"
+            )
         )
     )
 )
 
 if "!PYTHON_CMD!" == "" (
     echo [ERROR] Python 3 is not installed or not in PATH.
-    echo [ERROR] Please install Python 3.8 or higher from https://www.python.org/downloads/
+    echo [ERROR] Please install Python 3.13 from https://www.python.org/downloads/
     pause
     exit /b 1
 )
@@ -44,7 +61,14 @@ if errorlevel 1 (
 )
 
 for /f "tokens=2 delims= " %%V in ('!PYTHON_CMD! --version 2^>^&1') do set "PY_VER=%%V"
+for /f "delims=" %%V in ('!PYTHON_CMD! -c "import sys;print(*sys.version_info[:2],sep='.')"') do set "PY_MM=%%V"
 echo [INFO] Python version: !PY_VER!  (command: !PYTHON_CMD!)
+!PYTHON_CMD! -c "import sys; exit(0 if sys.version_info < (3,15) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Python !PY_MM! is newer than the versions LPU5 is tested with.
+    echo [WARN] Some packages ^(Meshtastic, Whisper, YOLO^) may not exist for it yet.
+    echo [WARN] Recommended: install Python 3.13 in addition - it is then used automatically.
+)
 
 REM Warning if local meshtastic.py shadows package imports
 if exist "meshtastic.py" (
@@ -54,6 +78,17 @@ if exist "meshtastic.py" (
 
 REM ── Virtual environment setup ────────────────────────────────────────────
 set "VENV_DIR=.venv"
+
+REM Recreate the virtualenv when it was made with another Python version
+REM (e.g. first created with a too new Python) or when it is broken.
+if exist "%VENV_DIR%\Scripts\python.exe" (
+    set "VENV_MM="
+    for /f "delims=" %%V in ('call "%VENV_DIR%\Scripts\python.exe" -c "import sys;print(*sys.version_info[:2],sep='.')" 2^>nul') do set "VENV_MM=%%V"
+    if not "!VENV_MM!" == "!PY_MM!" (
+        echo [*] Virtual environment uses Python "!VENV_MM!" instead of !PY_MM! - recreating .venv ...
+        rmdir /s /q "%VENV_DIR%"
+    )
+)
 
 REM Create virtualenv if not exists (always, regardless of SKIP_UPDATE)
 if not exist "%VENV_DIR%\Scripts\python.exe" (
@@ -95,6 +130,17 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [OK] Core dependencies installed
+
+echo [*] Installing Meshtastic support ^(USB gateway^) ...
+pip install "meshtastic>=2.7.7" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] meshtastic could not be installed for Python !PY_MM!.
+    echo [WARN] The server starts without the Meshtastic USB gateway.
+    echo [WARN] Fix: install Python 3.13, delete the .venv folder and start again,
+    echo [WARN]      or later: pip install meshtastic
+) else (
+    echo [OK] Meshtastic support installed
+)
 
 echo [*] Installing optional SDR dependencies: pyrtlsdr, numpy ...
 pip install "pyrtlsdr>=0.3.0" "numpy>=1.24.0" >nul 2>&1
@@ -196,7 +242,7 @@ if errorlevel 1 (
 
 REM ── Start server ─────────────────────────────────────────────────────────
 echo.
-echo [*] Starting server (api.py)...
+echo [*] Starting server ^(api.py^)...
 echo [*] Press CTRL+C to stop
 echo.
 python api.py

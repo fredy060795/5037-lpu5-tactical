@@ -7,13 +7,16 @@ pydantic>=2.12.5
 sqlalchemy>=2.0.0
 qrcode[pil]==8.2
 pyserial==3.5
-meshtastic>=2.7.7
 slowapi>=0.1.9
 python-dotenv>=1.0.0
 requests>=2.31.0
 cryptography>=41.0.0
 Pillow>=10.2.0
 httpx>=0.27.0
+
+# Optional: Meshtastic USB gateway (installed separately by the start scripts:
+# meshtastic has no release for the newest Python yet, and the server runs without it)
+# meshtastic>=2.7.7
 
 # Optional: SDR (Software-Defined Radio) support
 # Install these to enable direct RTL-SDR hardware access and fast FFT processing.

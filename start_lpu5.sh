@@ -88,6 +88,14 @@ else
         echo -e "${YELLOW}[WARN]${NC} requirements.txt not found"
     fi
 
+    # Meshtastic USB gateway (optional: no release for the newest Python yet)
+    echo -e "${BLUE}[*]${NC} Installing Meshtastic support (USB gateway)..."
+    if pip install "meshtastic>=2.7.7" > /dev/null 2>&1; then
+        echo -e "${GREEN}[OK]${NC} Meshtastic support installed"
+    else
+        echo -e "${YELLOW}[WARN]${NC} meshtastic not installed for $(python --version 2>&1) - server runs without the USB gateway (pip install meshtastic, Python <= 3.14)"
+    fi
+
     # Install optional SDR dependencies (failure is non-fatal)
     echo -e "${BLUE}[*]${NC} Installing optional packages (video analytics, radio transcription, tile server)..."
     if pip install "opencv-python-headless>=4.8" "Pillow>=10.2" "scipy>=1.12" "faster-whisper>=1.1" "sounddevice>=0.5"; then

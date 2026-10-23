@@ -1,8 +1,8 @@
 name: Windows start (start_lpu5.bat)
 
 # Runs start_lpu5.bat on a real Windows machine exactly like a user does
-# (fresh .venv, dependency install, server start) and checks that the
-# server answers. Catches Windows-only start crashes.
+# (.venv, dependency install, server start) and checks that the server answers.
+# Catches Windows-only start problems.
 
 on:
   push:
@@ -16,26 +16,40 @@ on:
 
 jobs:
   start-bat:
-    name: start_lpu5.bat (Python ${{ matrix.python }})
+    name: start_lpu5.bat (${{ matrix.case }})
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13']
+        include:
+          # A .venv made with the newest Python already exists (the state after a
+          # failed first start): the script must replace it and pick a supported Python.
+          - case: old .venv from newest Python
+            stale_venv: 'py -3.15'
+            force: ''
+          # Only the newest Python is usable: the server must still start.
+          - case: newest Python only
+            stale_venv: ''
+            force: 'py -3.15'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.13'
+      - name: Python versions on this machine
+        shell: pwsh
+        run: py --list
       - name: Run start_lpu5.bat and wait for the server
         shell: pwsh
         run: |
           $env:LPU5_SKIP_YOLO = '1'
           $env:LPU5_NO_BROWSER = '1'
+          if ('${{ matrix.force }}') { $env:LPU5_PYTHON = '${{ matrix.force }}' }
+          if ('${{ matrix.stale_venv }}') { & cmd /c "${{ matrix.stale_venv }} -m venv .venv"; & .venv\Scripts\python.exe --version }
           $p = Start-Process cmd.exe -ArgumentList '/c', 'start_lpu5.bat < NUL > start.log 2>&1' -PassThru -NoNewWindow
           $ok = $false
-          for ($i = 0; $i -lt 180; $i++) {
+          for ($i = 0; $i -lt 300; $i++) {
             Start-Sleep -Seconds 5
             $code = & curl.exe -sk -o NUL -w "%{http_code}" https://127.0.0.1:8101/api/tls/info
             if ($code -eq '200') { $ok = $true; break }
@@ -46,6 +60,7 @@ jobs:
           Write-Host "===== start.log ====="
           Get-Content start.log -Encoding utf8
           if (-not $ok) { Write-Error 'Server did not start'; exit 1 }
-          Write-Host "Server answers on port 8101"
+          Write-Host "===== Server answers on port 8101 ====="
+          & .venv\Scripts\python.exe --version
           & curl.exe -sk https://127.0.0.1:8101/api/dependencies/check
           Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
