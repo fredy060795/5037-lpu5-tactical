@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/auth-fetch.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Global Intel - LPU5 Tactical</title>
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" type="image/png" href="/browser-logo.png">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
     <style>
         :root {
             --sb-collapsed: 70px;
@@ -493,7 +494,7 @@
         </div>
     </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script><script>
+<script src="/vendor/leaflet/leaflet.js"></script><script>
 // ─── Collapsible side-panel accordion ─────────────────────────
 var _openPanel = null;
 function togglePanel(id) {
@@ -518,10 +519,10 @@ var layerState = {
 };
 var map = L.map('intel-map', { center: [20, 10], zoom: 2, zoomControl: true, attributionControl: false });
 var tiles = {
-    dark:      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }),
-    street:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-    topo:      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, opacity: 0.9 })
+    dark:      L.tileLayer((location.origin + '/tiles/dark/{z}/{x}/{y}'), { maxZoom: 19, subdomains: 'abcd' }),
+    street:    L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), { maxZoom: 19 }),
+    satellite: L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), { maxZoom: 19 }),
+    topo:      L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), { maxZoom: 17, opacity: 0.9 })
 };
 tiles.dark.addTo(map);
 var currentTile = 'dark';

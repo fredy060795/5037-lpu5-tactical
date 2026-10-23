@@ -91,3 +91,9 @@ video_streams.json.tmp
 !eud/android/app/src/main/
 !eud/dist/
 radio_log/
+secret.key
+qr_codes_db.json
+pending_registrations_db.json
+data_packages/
+tile_cache/
+maps/*.mbtiles

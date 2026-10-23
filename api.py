@@ -82,6 +82,7 @@ Base.metadata.create_all(bind=engine)
 
 # Migrate existing tables: add missing columns that create_all() won't add to existing tables
 from sqlalchemy import text as sa_text, inspect as sa_inspect
+from sqlalchemy import func
 _inspector = sa_inspect(engine)
 if "chat_messages" in _inspector.get_table_names():
     _existing_cols = {c["name"] for c in _inspector.get_columns("chat_messages")}
@@ -287,7 +288,10 @@ def get_local_ip():
     return primary_ip, []
 
 # JWT settings (development use only)
-JWT_SECRET = "LPU5-TACTICAL-SECRET-KEY-2024"
+import security as _security
+# Per-installation secret (secret.key, not in git) – the previous key was
+# public in the source code, which allowed anyone to forge login tokens.
+JWT_SECRET = _security.load_or_create_secret(os.path.dirname(os.path.abspath(__file__)))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -451,6 +455,9 @@ async def lifespan(application):
             _FEDERATION_SYNC_THREAD.start()
             logger.info("✅ Federation auto-sync worker started (interval=%ss)", fed_sync_interval)
 
+    if os.environ.get("LPU5_DISABLE_MARTI") != "1":
+        _start_marti_server()
+
     if video_manager:
         try:
             video_manager.start_autostart()
@@ -545,10 +552,37 @@ async def lifespan(application):
             logger.error(f"Error stopping data server: {e}")
 
 app = FastAPI(title="LPU5 Tactical Tracker API", version="2.1.0", lifespan=lifespan)
+
+
+def _security_lookup_user(username: str):
+    with SessionLocal() as _db:
+        u = _db.query(User).filter(User.username == username).first()
+        if not u:
+            return None
+        return {"role": u.role, "is_active": u.is_active,
+                "must_change_password": bool((u.data or {}).get("must_change_password"))}
+
+
+def _security_decode(token: str):
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        return None
+
+
+_security_policy = _security.SecurityPolicy(
+    decode=_security_decode,
+    lookup_user=_security_lookup_user,
+    settings=lambda: (load_json("config") or {}).get("security", {}),
+)
+_LOGIN_LIMITER = _security.LoginLimiter()
+# Installed before CORS so that CORS headers are also added to 401/403 answers.
+_security.install(app, _security_policy)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # Auth uses bearer tokens, not cookies – never send credentials cross-origin.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -617,7 +651,16 @@ if DATA_SERVER_AVAILABLE:
         DATA_SERVER_AVAILABLE = False
 
 # Mount static directories
-app.mount("/static", StaticFiles(directory=base_path), name="static")
+class _SafeStaticFiles(StaticFiles):
+    """StaticFiles for the program folder, limited to web assets (see security.py)."""
+
+    async def get_response(self, path, scope):
+        if not _security.static_path_allowed(base_path, path):
+            raise HTTPException(status_code=404, detail="Not found")
+        return await super().get_response(path, scope)
+
+
+app.mount("/static", _SafeStaticFiles(directory=base_path), name="static")
 assets_dir = os.path.join(base_path, "assets")
 if os.path.isdir(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -716,10 +759,10 @@ def save_json(key: str, data: Any) -> None:
 # Utility
 # -------------------------
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return _security.hash_password(password)
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return hash_password(password) == password_hash
+    return _security.verify_password(password, password_hash)
 
 def generate_token(user_id: str, username: str) -> str:
     payload = {
@@ -1034,6 +1077,7 @@ def ensure_default_admin():
                     role="admin",
                     group_id="admins",
                     is_active=True,
+                    data={"must_change_password": True},
                     created_at=datetime.now(timezone.utc)
                 )
                 db.add(default_user)
@@ -1835,6 +1879,9 @@ def _process_incoming_cot(cot_xml: str) -> None:
     """Parse an incoming CoT XML event, upsert a MapMarker, and broadcast to WebSocket clients."""
     # Capture for the CoT data monitor (best-effort, never blocks the main flow)
     _cot_monitor_record(cot_xml, "<<<", "tak_server")
+    # Shapes, routes, alerts, CASEVAC, video, file transfers (tak_integration.py)
+    if tak_bridge and tak_bridge.handle_inbound(cot_xml):
+        return
     import xml.etree.ElementTree as _ET
     try:
         root = _ET.fromstring(cot_xml)
@@ -2830,11 +2877,27 @@ async def login_user(data: dict = Body(...), request: Request = None, db: Sessio
     password = data.get("password") or ""
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
-    
+
+    client_ip_rl = request.client.host if request and request.client else ""
+    wait = _LOGIN_LIMITER.blocked(client_ip_rl, username)
+    if wait:
+        raise HTTPException(status_code=429, detail=f"Zu viele Fehlversuche – bitte {wait} s warten")
+
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.password_hash):
+        _LOGIN_LIMITER.failed(client_ip_rl, username)
         log_audit("login_failed", "system", {"username": username})
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    _LOGIN_LIMITER.succeeded(client_ip_rl, username)
+
+    # Upgrade legacy unsalted hashes; flag accounts still using a default password.
+    if _security.needs_rehash(user.password_hash):
+        user.password_hash = hash_password(password)
+    if password.lower() in _security.DEFAULT_PASSWORDS:
+        flagged = dict(user.data or {})
+        flagged["must_change_password"] = True
+        user.data = flagged
+    db.commit()
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
@@ -2881,7 +2944,92 @@ async def login_user(data: dict = Body(...), request: Request = None, db: Sessio
         "data": user.data
     }
 
-    return {"status": "success", "user": user_info, "token": token, "expires_at": expires_at}
+    _security_policy.invalidate(user.username)
+    return {"status": "success", "user": user_info, "token": token, "expires_at": expires_at,
+            "must_change_password": bool((user.data or {}).get("must_change_password"))}
+
+@app.post("/api/change_password")
+async def change_own_password(data: dict = Body(...), authorization: Optional[str] = Header(None),
+                              request: Request = None, db: Session = Depends(get_db)):
+    """Change the own password (also used for the forced change after first login).
+    Accepts a session token or username + old password."""
+    old_pw = data.get("old_password") or ""
+    new_pw = data.get("new_password") or ""
+    user = None
+    if authorization:
+        payload = verify_token(authorization[7:].strip() if authorization.lower().startswith("bearer ") else authorization)
+        if payload:
+            user = db.query(User).filter(User.username == payload.get("username")).first()
+    if user is None:
+        user = db.query(User).filter(User.username == (data.get("username") or "").strip()).first()
+    ip = request.client.host if request and request.client else ""
+    if not user or not verify_password(old_pw, user.password_hash):
+        if user:
+            _LOGIN_LIMITER.failed(ip, user.username)
+        raise HTTPException(status_code=401, detail="Bisheriges Passwort falsch")
+    problem = _security.password_problem(new_pw, user.username)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    if new_pw == old_pw:
+        raise HTTPException(status_code=400, detail="Neues Passwort muss sich unterscheiden")
+    user.password_hash = hash_password(new_pw)
+    flagged = dict(user.data or {})
+    flagged.pop("must_change_password", None)
+    user.data = flagged
+    db.commit()
+    _security_policy.invalidate(user.username)
+    log_audit("change_password", user.id, {"username": user.username})
+    return {"status": "success"}
+
+
+@app.post("/api/media_token")
+def issue_media_token(authorization: Optional[str] = Header(None)):
+    """Short-lived token (10 min) for URLs of video, audio and downloads, so the
+    session token never appears in URLs and server logs."""
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else authorization
+    payload = verify_token(token) if token else None
+    if not payload or payload.get("scope") == "media":
+        raise HTTPException(status_code=401, detail="Anmeldung erforderlich")
+    media = jwt.encode({"user_id": payload.get("user_id"), "username": payload.get("username"), "scope": "media",
+                        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+                        "iat": datetime.now(timezone.utc)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {"token": media, "expires_in": 600}
+
+
+@app.post("/api/eud/wipe")
+def request_eud_wipe(data: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin: erase the offline data on all EUDs of a user at their next connection
+    (lost or captured device). The user's sessions are revoked as well."""
+    user = db.query(User).filter(User.username == (data.get("username") or "")).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    flagged = dict(user.data or {})
+    flagged["wipe_requested"] = bool(data.get("wipe", True))
+    if flagged["wipe_requested"]:
+        flagged["wipe_requested_at"] = datetime.now(timezone.utc).isoformat()
+    user.data = flagged
+    db.commit()
+    log_audit("eud_wipe_requested", "admin", {"username": user.username, "wipe": flagged["wipe_requested"]})
+    return {"status": "success", "wipe_requested": flagged["wipe_requested"]}
+
+
+@app.post("/api/eud/wipe/confirm")
+def confirm_eud_wipe(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Called by the EUD after it erased its local data."""
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else authorization
+    payload = verify_token(token) if token else None
+    if not payload:
+        raise HTTPException(status_code=401, detail="Anmeldung erforderlich")
+    user = db.query(User).filter(User.username == payload.get("username")).first()
+    if user:
+        flagged = dict(user.data or {})
+        flagged["wipe_requested"] = False
+        flagged["wipe_confirmed_at"] = datetime.now(timezone.utc).isoformat()
+        user.data = flagged
+        db.commit()
+        log_audit("eud_wipe_confirmed", user.id, {"username": user.username})
+    return {"status": "success"}
+
 
 @app.post("/api/logout")
 async def logout(data: dict = Body(...)):
@@ -2941,7 +3089,9 @@ def api_me(authorization: Optional[str] = Header(None), db: Session = Depends(ge
         "tak_team": user.tak_team or "Cyan",
         "tak_role": user.tak_role or "Team Member",
         "tak_display_type": user.tak_display_type or "General Ground Unit",
-        "data": user.data
+        "data": user.data,
+        "must_change_password": bool((user.data or {}).get("must_change_password")),
+        "wipe_requested": bool((user.data or {}).get("wipe_requested")),
     }
 
 # -------------------------
@@ -3147,7 +3297,10 @@ async def create_user_legacy(data: dict = Body(...), db: Session = Depends(get_d
         group_id=group_id or "users",
         role="user",
         is_active=True,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.now(timezone.utc),
+        # The admin knows this password: the user picks their own at first login
+        # (opt out with "must_change_password": false, e.g. for service accounts).
+        data={"must_change_password": bool(data.get("must_change_password", True))},
     )
     db.add(new_user)
     db.commit()
@@ -3281,8 +3434,13 @@ async def change_user_password_admin(user_id: str, data: dict = Body(...), db: S
         raise HTTPException(status_code=404, detail="User not found")
     
     user.password_hash = hash_password(new_password)
+    # Password set by an admin is temporary: the user chooses their own at next login.
+    flagged = dict(user.data or {})
+    flagged["must_change_password"] = True
+    user.data = flagged
     db.commit()
-    
+    _security_policy.invalidate(user.username)
+
     log_audit("admin_change_password", "system", {"user_id": user_id})
     return {"status": "success", "message": "Password changed"}
 
@@ -3309,15 +3467,23 @@ async def delete_user(user_id: str, authorization: Optional[str] = Header(None),
 # -------------------------
 # Pending registration endpoints
 # -------------------------
+def _as_utc(value: datetime) -> datetime:
+    """SQLite returns naive datetimes; they are stored in UTC."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 @app.post("/api/register_user")
-async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
+async def register_user(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     username = (data.get("username") or "").strip()
     password = data.get("password")
     unit = data.get("unit") or data.get("device") or None
-    callsign = data.get("callsign") or None
+    callsign = (data.get("callsign") or "").strip()[:40] or None
     qr_token = data.get("qr_token")
     if not username or not password:
-        raise HTTPException(status_code=400, detail="Required fields missing (username, password)")
+        raise HTTPException(status_code=400, detail="Benutzername und Passwort sind erforderlich")
+    problem = _security.username_problem(username) or _security.password_problem(password, username)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
     
     # Resolve unit: accept unit name from registration form; fall back to "General"
     unit_name = unit or "General"
@@ -3333,19 +3499,22 @@ async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Invalid QR token")
         if qr.max_uses > 0 and qr.uses >= qr.max_uses:
             raise HTTPException(status_code=400, detail="QR token max uses exceeded")
-        if qr.expires_at and datetime.now(timezone.utc) > qr.expires_at:
+        if qr.expires_at and datetime.now(timezone.utc) > _as_utc(qr.expires_at):
             raise HTTPException(status_code=400, detail="QR token expired")
         
         qr.uses += 1
         db.commit()
+        invite_label = (qr.data or {}).get("label") or "QR"
+    else:
+        invite_label = None
 
-    # Check if user already exists
-    if db.query(User).filter(User.username == username).first():
-        raise HTTPException(status_code=400, detail="Username already exists")
+    # Check if user already exists (case-insensitive: TAK and certificates do not distinguish)
+    if db.query(User).filter(func.lower(User.username) == username.lower()).first():
+        raise HTTPException(status_code=400, detail="Benutzername ist bereits vergeben")
         
     # Check if registration already pending
-    if db.query(PendingRegistration).filter(PendingRegistration.username == username).first():
-        raise HTTPException(status_code=400, detail="Registration already pending")
+    if db.query(PendingRegistration).filter(func.lower(PendingRegistration.username) == username.lower()).first():
+        raise HTTPException(status_code=400, detail="Für diesen Benutzernamen wartet bereits eine Registrierung auf Freigabe")
 
     registration = PendingRegistration(
         id=str(uuid.uuid4()),
@@ -3365,6 +3534,9 @@ async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
             "tak_team": data.get("tak_team") or "Cyan",
             "tak_role": data.get("tak_role") or "Team Member",
             "tak_display_type": data.get("tak_display_type") or "General Ground Unit",
+            "source": "EUD-App" if data.get("device") == "EUD" else "Web",
+            "invite": invite_label,
+            "client_ip": _get_client_ip(request) if request else None,
         }
     )
     db.add(registration)
@@ -3401,9 +3573,12 @@ async def approve_registration(data: dict = Body(...), db: Session = Depends(get
         raise HTTPException(status_code=404, detail="Registration not found")
     
     reg_data = reg.data or {}
-    # Resolve unit_id
-    unit_name = reg_data.get("unit")
-    unit_id = reg_data.get("unit_id")
+    # Resolve unit_id (the admin may assign a different unit while approving)
+    chosen_unit = (data.get("unit") or "").strip()
+    if chosen_unit and not db.query(Unit).filter(Unit.name == chosen_unit).first():
+        raise HTTPException(status_code=400, detail=f"Einheit „{chosen_unit}“ existiert nicht – zuerst anlegen")
+    unit_name = chosen_unit or reg_data.get("unit")
+    unit_id = None if chosen_unit else reg_data.get("unit_id")
     if unit_name and not unit_id:
         unit_obj = db.query(Unit).filter(Unit.name == unit_name).first()
         unit_id = unit_obj.id if unit_obj else None
@@ -4320,11 +4495,14 @@ def create_drawing(data: dict = Body(...)):
             "color": drawing.color,
             "weight": drawing.weight,
             "created_by": drawing.created_by,
-            "timestamp": drawing.created_at.isoformat()
+            "timestamp": drawing.created_at.isoformat(),
+            "data": drawing.data,
         }
         
         # Broadcast to all clients
         broadcast_websocket_update("drawings", "drawing_created", drawing_dict)
+        if tak_bridge:
+            tak_bridge.drawing_changed(drawing_dict)
         return {"status": "success", "drawing": drawing_dict}
     except Exception as e:
         db.rollback()
@@ -4366,11 +4544,14 @@ def update_drawing(drawing_id: str, data: dict = Body(...)):
             "color": drawing.color,
             "weight": drawing.weight,
             "created_by": drawing.created_by,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": drawing.data,
         }
         
         # Broadcast to all clients
         broadcast_websocket_update("drawings", "drawing_updated", drawing_dict)
+        if tak_bridge:
+            tak_bridge.drawing_changed(drawing_dict)
         return {"status": "success", "drawing": drawing_dict}
     except Exception as e:
         db.rollback()
@@ -4387,9 +4568,12 @@ def delete_drawing(drawing_id: str):
         drawing = db.query(Drawing).filter(Drawing.id == drawing_id).first()
         if not drawing:
              raise HTTPException(status_code=404, detail="Drawing not found")
+        deleted_dict = {"id": drawing.id, "coordinates": drawing.coordinates or [], "data": drawing.data or {}}
         db.delete(drawing)
         db.commit()
         broadcast_websocket_update("drawings", "drawing_deleted", {"id": drawing_id})
+        if tak_bridge:
+            tak_bridge.drawing_deleted(deleted_dict)
         return {"status": "success"}
     except Exception as e:
         db.rollback()
@@ -6833,14 +7017,8 @@ def qr_redirect(token: str, request: Request, db: Session = Depends(get_db)):
         logger.error(f"QR token {token} has no redirect_url")
         raise HTTPException(status_code=500, detail="QR code configuration error: missing redirect URL")
 
-    if qr.expires_at:
-        try:
-            if datetime.now(timezone.utc) > qr.expires_at:
-                raise HTTPException(status_code=410, detail="QR token expired")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    if qr.expires_at and datetime.now(timezone.utc) > _as_utc(qr.expires_at):
+        raise HTTPException(status_code=410, detail="QR token expired")
 
     uses = qr.uses
     max_uses = qr.max_uses
@@ -7418,7 +7596,8 @@ async def api_tak_logins_auth_claim(data: dict = Body(...), db: Session = Depend
 # --- TAK Login Certificate (.p12) Generation ---
 
 @app.post("/api/tak_logins/generate_p12")
-def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Depends(get_db)):
+def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Depends(get_db),
+                                authorization: Optional[str] = Header(None)):
     """Generate an ATAK-compatible certificate data package (ZIP).
 
     The ZIP contains:
@@ -7449,6 +7628,24 @@ def api_tak_logins_generate_p12(data: dict = Body(default={}), db: Session = Dep
             status_code=500,
             detail="cryptography package not available – cannot generate certificates",
         )
+
+    # Without an admin session the caller must prove the TAK password of the
+    # login it requests a certificate for (self-service via tak_login.html).
+    _caller = _tak_current_user(authorization) if authorization else None
+    if not (_caller and _caller.get("role") in ("admin", "operator")):
+        _req_user = (data.get("username") or "").strip()
+        _req_pw = data.get("password") or ""
+        _known = None
+        if _req_user:
+            _u = db.query(User).filter(User.username == _req_user).first()
+            _known = (_u.data or {}).get("tak_server_password") if _u else None
+            if not _known:
+                _entries = load_json("tak_logins")
+                _match = next((e for e in (_entries if isinstance(_entries, list) else [])
+                               if (e.get("username") or "").lower() == _req_user.lower()), None)
+                _known = _match.get("password") if _match else None
+        if not (_req_user and _req_pw and _known and secrets.compare_digest(str(_known), str(_req_pw))):
+            raise HTTPException(status_code=403, detail="Benutzername und TAK-Passwort erforderlich")
 
     settings = _get_tak_login_settings()
     cn = data.get("username") or settings.get("display_name") or "LPU5-Client"
@@ -9101,6 +9298,15 @@ def _cot_listener_on_client_connect(conn: "socket.socket", addr: tuple) -> None:
             logger.info("CoT TCP: pushed %d existing markers to new client %s", pushed, addr)
     except Exception as exc:
         logger.debug("CoT TCP: initial marker push to %s failed: %s", addr, exc)
+    # Drawings, routes, video feeds and open alerts as well (tak_integration.py)
+    if tak_bridge:
+        try:
+            for xml in _tak_current_objects_cot():
+                conn.sendall(xml.encode("utf-8"))
+        except OSError:
+            pass
+        except Exception as exc:
+            logger.debug("CoT TCP: initial drawing push to %s failed: %s", addr, exc)
 
 
 def _cot_listener_ingest_callback(xml_string: str) -> None:
@@ -9115,6 +9321,8 @@ def _cot_listener_ingest_callback(xml_string: str) -> None:
     """
     # Capture for the CoT data monitor (best-effort, never blocks the main flow)
     _cot_monitor_record(xml_string, "<<<", "cot_listener")
+    if tak_bridge and tak_bridge.handle_inbound(xml_string):
+        return
 
     # Handle ATAK GeoChat (b-t-f) events BEFORE the AUTONOMOUS_MODULES_AVAILABLE
     # guard because GeoChat ingestion only needs stdlib xml.etree and the local
@@ -9375,8 +9583,12 @@ def _start_itak_bridge() -> bool:
         port = int(cfg.get("itak_bridge_port", iTAKBridgeServer.DEFAULT_PORT))
         cert_path = str(cfg.get("itak_bridge_cert", "cert.pem"))
         key_path = str(cfg.get("itak_bridge_key", "key.pem"))
+        # "0.0.0.0" lets ATAK/WinTAK on the network use the TLS stream
+        # (connection package with protocol=ssl); default stays local-only.
+        bind = str(cfg.get("itak_bridge_bind", iTAKBridgeServer.DEFAULT_BIND))
         _itak_bridge_service = iTAKBridgeServer(
             port=port,
+            bind_address=bind,
             cert_path=cert_path,
             key_path=key_path,
             ingest_callback=_cot_listener_ingest_callback,
@@ -9785,6 +9997,9 @@ async def ingest_cot_xml(request: Request):
 
     if not xml_string:
         raise HTTPException(status_code=400, detail="Empty request body")
+
+    if tak_bridge and tak_bridge.handle_inbound(xml_string):
+        return {"status": "success", "handled_by": "tak_integration"}
 
     # Validate before doing anything else
     if not CoTProtocolHandler.validate_cot_xml(xml_string):
@@ -12633,6 +12848,16 @@ def sdr_measure(data: dict = Body(...)):
     }
 
 
+def _tsl_reachable() -> bool:
+    url = ((load_json("config") or {}).get("tsl_url") or "").rstrip("/")
+    if not url:
+        return False
+    try:
+        return requests.get(f"{url}/api/state", timeout=2).ok
+    except Exception:
+        return False
+
+
 @app.get("/api/dependencies/check", summary="Check hardware and software dependencies")
 def check_dependencies():
     """
@@ -12698,6 +12923,55 @@ def check_dependencies():
             "install": "pip install numpy",
             "description": "Fast FFT for SDR spectrum analysis",
         },
+        {
+            "name": "cryptography",
+            "required": True,
+            "present": _pkg_present("cryptography"),
+            "install": "pip install cryptography",
+            "description": "HTTPS certificates (LPU5 CA), ATAK truststores",
+        },
+        {
+            "name": "PIL",
+            "required": False,
+            "present": _pkg_present("PIL"),
+            "install": "pip install Pillow",
+            "description": "Map tile server: substitute tiles from coarser zoom levels",
+        },
+        {
+            "name": "cv2",
+            "required": False,
+            "present": _pkg_present("cv2"),
+            "install": "pip install opencv-python-headless",
+            "description": "Video analytics: RTSP/HTTP/camera input, MJPEG output",
+        },
+        {
+            "name": "ultralytics",
+            "required": False,
+            "present": _pkg_present("ultralytics"),
+            "install": "pip install ultralytics",
+            "description": "Video analytics: YOLOv8 object detection (loads PyTorch, ~1-2 GB)",
+        },
+        {
+            "name": "faster_whisper",
+            "required": False,
+            "present": _pkg_present("faster_whisper"),
+            "install": "pip install faster-whisper",
+            "description": "Radio transcription (Whisper)",
+        },
+        {
+            "name": "scipy",
+            "required": False,
+            "present": _pkg_present("scipy"),
+            "install": "pip install scipy",
+            "description": "Radio transcription: audio resampling",
+        },
+        {
+            "name": "sounddevice",
+            "required": False,
+            "present": _pkg_present("sounddevice"),
+            "install": "pip install sounddevice",
+            "description": "Radio transcription from a radio on a USB sound card",
+        },
     ]
 
     # --- System tool checks ---
@@ -12741,7 +13015,13 @@ def check_dependencies():
             "name": "rtl_fm",
             "present": bool(_find_rtl_tool("rtl_fm")),
             "install": rtl_sdr_install,
-            "description": "RTL-SDR FM demodulator (optional, used for audio streaming)",
+            "description": "RTL-SDR FM demodulator (optional, used for audio streaming and radio transcription)",
+        },
+        {
+            "name": "tsl_server",
+            "present": _tsl_reachable(),
+            "install": "TSL (Lagetagebuch) starten und in config.json \"tsl_url\" eintragen, z. B. http://127.0.0.1:5008",
+            "description": "TSL situation log – receives radio log, alerts and reports (optional)",
         },
     ]
 
@@ -13908,8 +14188,15 @@ def _video_marker_sink(marker: Dict) -> None:
 
 try:
     import video_analytics as _video_analytics
+    def _video_broadcast(channel, event, data):
+        broadcast_websocket_update(channel, event, data)
+        # KI alarms go into the TSL situation log as well (tsl is defined further below)
+        _tsl = globals().get("tsl")
+        if event == "video_detection" and _tsl:
+            _tsl.video(data)
+
     video_manager = _video_analytics.VideoAnalyticsManager(
-        base_path, broadcast=broadcast_websocket_update, marker_sink=_video_marker_sink)
+        base_path, broadcast=_video_broadcast, marker_sink=_video_marker_sink)
     app.include_router(_video_analytics.create_router(video_manager, verify_token))
     logger.info("Video analytics enabled (OpenCV=%s, YOLO=%s)",
                 _video_analytics.CV2_AVAILABLE, _video_analytics.YOLO_AVAILABLE)
@@ -13989,11 +14276,278 @@ def download_ca_profile():
     return Response(content=plistlib.dumps(profile), media_type="application/x-apple-aspen-config",
                     headers={"Content-Disposition": 'attachment; filename="lpu5-ca.mobileconfig"'})
 
+# TSL situation log (Lagetagebuch) – see tsl_bridge.py
+def _mgrs_text(lat: float, lng: float) -> str:
+    try:
+        import mgrs as _mgrs_mod  # optional dependency
+        return _mgrs_mod.MGRS().toMGRS(lat, lng)
+    except Exception:
+        return f"{lat:.5f}, {lng:.5f}"
+
+
+try:
+    import tsl_bridge as _tsl_bridge
+    tsl = _tsl_bridge.TslBridge(lambda: load_json("config") or {}, _mgrs_text)
+except Exception as _tsl_err:
+    tsl = None
+    logger.warning("TSL bridge unavailable: %s", _tsl_err)
+
+
+@app.get("/api/tsl/status")
+def tsl_status():
+    cfg = load_json("config") or {}
+    return {"configured": bool(cfg.get("tsl_url")), "url": cfg.get("tsl_url") or "",
+            "stats": tsl.stats if tsl else None}
+
+
+# ATAK / WinTAK / iTAK two-way integration – see tak_integration.py
+MARTI_PORT = int(os.environ.get("LPU5_MARTI_PORT", "8080"))
+
+
+def _tak_send_cot(xml: str) -> None:
+    """Send LPU5-originated CoT to every TAK path (TAK server, TCP clients, multicast, iTAK)."""
+    _cot_monitor_record(xml, ">>>", "tak_integration")
+    try:
+        forward_cot_to_tak(xml)
+    except Exception as e:
+        logger.debug("tak forward failed: %s", e)
+    _tak_relay_cot(xml)
+
+
+def _tak_relay_cot(xml: str) -> None:
+    """Relay TAK traffic to the locally connected TAK clients (not upstream)."""
+    for fn in (_forward_cot_to_tcp_clients, _forward_cot_multicast, _forward_cot_to_itak_bridge):
+        try:
+            fn(xml)
+        except Exception as e:
+            logger.debug("tak relay %s failed: %s", fn.__name__, e)
+
+
+def _tak_upsert_drawing(d: Dict) -> None:
+    with SessionLocal() as db:
+        row = db.query(Drawing).filter(Drawing.id == d["id"]).first()
+        created = row is None
+        if created:
+            row = Drawing(id=d["id"])
+            db.add(row)
+        elif (row.coordinates == d["coordinates"] and row.color == d["color"] and row.name == d["name"]
+              and (row.data or {}).get("radius") == (d.get("data") or {}).get("radius")):
+            return  # unchanged repeat from TAK
+        row.name, row.type, row.coordinates = d["name"], d["type"], d["coordinates"]
+        row.color, row.weight, row.created_by, row.data = d["color"], d["weight"], d.get("created_by"), d.get("data")
+        db.commit()
+        out = {"id": row.id, "name": row.name, "type": row.type, "coordinates": row.coordinates,
+               "color": row.color, "weight": row.weight, "created_by": row.created_by, "data": row.data,
+               "timestamp": datetime.now(timezone.utc).isoformat()}
+    broadcast_websocket_update("drawings", "drawing_created" if created else "drawing_updated", out)
+
+
+def _tak_delete_drawing(drawing_id: str) -> None:
+    with SessionLocal() as db:
+        row = db.query(Drawing).filter(Drawing.id == drawing_id).first()
+        if not row:
+            return
+        db.delete(row)
+        db.commit()
+    broadcast_websocket_update("drawings", "drawing_deleted", {"id": drawing_id})
+
+
+def _tak_delete_marker(marker_id: str) -> None:
+    with SessionLocal() as db:
+        row = db.query(MapMarker).filter(MapMarker.id == marker_id).first()
+        if not row:
+            return
+        db.delete(row)
+        db.commit()
+    broadcast_websocket_update("markers", "marker_deleted", {"id": marker_id})
+
+
+def _tak_add_video(v: Dict) -> None:
+    if not video_manager:
+        return
+    sid = "tak-" + re.sub(r"[^a-zA-Z0-9_-]", "_", v["uid"])[:40]
+    try:
+        if sid in video_manager.streams:
+            s_ = video_manager.streams[sid]
+            if s_.cfg.get("source") != v["url"]:
+                video_manager.update(sid, {"source": v["url"], "name": v["alias"]})
+            return
+        video_manager.create({"id": sid, "name": f"{v['alias']} (ATAK)", "source": v["url"],
+                              "analytics": False, "autostart": False, "tak_url": v["url"]})
+        logger.info("Video feed from ATAK registered: %s -> %s", v["alias"], v["url"])
+    except Exception as e:
+        logger.warning("ATAK video %s not registered: %s", v.get("alias"), e)
+
+
+def _tak_fetch(url: str) -> Optional[bytes]:
+    # Content is verified against the SHA-256 announced in the CoT, so a
+    # TAK server's self-signed certificate does not need to be trusted here.
+    r = requests.get(url, timeout=60, verify=False)
+    r.raise_for_status()
+    return r.content
+
+
+def _tak_marker_cot(m: Dict) -> Optional[str]:
+    if not AUTONOMOUS_MODULES_AVAILABLE:
+        return None
+    evt = CoTProtocolHandler.marker_to_cot(m)
+    return evt.to_xml() if evt else None
+
+
+_TAK_HOST_CACHE: Dict[str, Any] = {}
+
+
+def _tak_server_host() -> str:
+    if time.time() - _TAK_HOST_CACHE.get("at", 0) > 300:
+        try:
+            _TAK_HOST_CACHE["host"] = get_local_ip()[0]
+        except Exception:
+            _TAK_HOST_CACHE["host"] = "127.0.0.1"
+        _TAK_HOST_CACHE["at"] = time.time()
+    return _TAK_HOST_CACHE["host"]
+
+
+def _tak_marti_base_url() -> str:
+    return f"http://{_tak_server_host()}:{MARTI_PORT}"
+
+
+def _tak_current_objects_cot() -> List[str]:
+    """Drawings, routes, video feeds and open LPU5 alerts as CoT (for new TAK clients)."""
+    out: List[str] = []
+    with SessionLocal() as db:
+        for d in db.query(Drawing).all():
+            # Shapes drawn on other TAK devices are included (with their
+            # original UID), so every newly connected client gets the full picture.
+            xml = _tak_integration.drawing_to_cot({"id": d.id, "name": d.name, "type": d.type,
+                                                    "coordinates": d.coordinates, "color": d.color,
+                                                    "weight": d.weight, "data": d.data or {}})
+            if xml:
+                out.append(xml)
+    if video_manager:
+        for s_ in video_manager.streams.values():
+            xml = _tak_integration.video_to_cot({**s_.cfg, "tak_url": s_.cfg.get("tak_url")}, _tak_server_host())
+            if xml and not s_.id.startswith("tak-"):
+                out.append(xml)
+    for a in tak_bridge.active_alerts() if tak_bridge else []:
+        if a.get("source") == "lpu5":
+            out.append(_tak_integration.alert_to_cot(a))
+    return out
+
+
+def _tak_current_user(authorization: Optional[str]) -> Optional[Dict]:
+    if not authorization:
+        return None
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else authorization.strip()
+    payload = verify_token(token)
+    if not payload:
+        return None
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.username == payload.get("username")).first()
+        return {"username": u.username, "callsign": u.callsign, "role": u.role} if u else None
+
+
+def _tak_ca_pem() -> Optional[bytes]:
+    p = os.path.join(base_path, "lpu5-ca.pem")
+    return open(p, "rb").read() if os.path.isfile(p) else None
+
+
+def _tak_export_situation() -> bytes:
+    with SessionLocal() as db:
+        markers = []
+        for m in db.query(MapMarker).all():
+            md = {"id": m.id, "lat": m.lat, "lng": m.lng, "name": m.name, "type": m.type, "created_by": m.created_by}
+            if isinstance(m.data, dict):
+                for k, v in m.data.items():
+                    md.setdefault(k, v)
+            markers.append(md)
+        drawings = [{"id": d.id, "name": d.name, "type": d.type, "coordinates": d.coordinates, "color": d.color,
+                     "weight": d.weight, "data": d.data or {}} for d in db.query(Drawing).all()]
+    return _tak_integration.export_package("LPU5 Lage", markers, drawings, _tak_marker_cot)
+
+
+def _tak_create_overlay_file(name: str, data: bytes, username: str) -> None:
+    """Store a KML/KMZ/GPX/GeoJSON file from a data package as server overlay."""
+    safe = re.sub(r"[^\w.-]", "_", name)
+    fname = f"{uuid.uuid4().hex[:8]}-{safe}"
+    path = os.path.join(uploads_dir, fname)
+    with open(path, "wb") as f:
+        f.write(data)
+    with SessionLocal() as db:
+        ov = Overlay(name=os.path.splitext(name)[0], image_url="", bounds={}, opacity=1.0, rotation=0,
+                     created_by=username or "atak",
+                     data={"kind": "file", "format": name.rsplit(".", 1)[-1].lower(), "fileUrl": f"/uploads/{fname}"})
+        db.add(ov)
+        db.commit()
+        db.refresh(ov)
+        out = {"id": ov.id, "name": ov.name, "imageUrl": "", "bounds": {}, "opacity": 1.0, "rotation": 0,
+               "created_by": ov.created_by, "data": ov.data, "timestamp": datetime.now(timezone.utc).isoformat()}
+    broadcast_websocket_update("overlays", "overlay_created", out)
+
+
+try:
+    import tak_integration as _tak_integration
+    tak_bridge = _tak_integration.TakBridge(
+        base_path,
+        send_cot=_tak_send_cot, relay=_tak_relay_cot, broadcast=broadcast_websocket_update,
+        upsert_drawing=_tak_upsert_drawing, delete_drawing=_tak_delete_drawing, delete_marker=_tak_delete_marker,
+        add_video=_tak_add_video, fetch=_tak_fetch,
+        on_alert=lambda a: tsl and tsl.alert(a), on_report=lambda r: tsl and tsl.report(r),
+    )
+    app.include_router(_tak_integration.create_router(
+        tak_bridge, _tak_current_user, _tak_marti_base_url, _tak_server_host, _tak_ca_pem,
+        _tak_export_situation, lambda xml: _cot_listener_ingest_callback(xml), _tak_create_overlay_file))
+    _marti_router = _tak_integration.create_marti_router(tak_bridge, _tak_marti_base_url)
+    app.include_router(_marti_router)
+    if video_manager:
+        video_manager.on_change = lambda info: tak_bridge.video_published(info, _tak_server_host())
+    logger.info("TAK integration enabled (shapes, routes, alerts, CASEVAC, video, data packages)")
+except Exception as _tak_init_err:
+    tak_bridge = None
+    _marti_router = None
+    logger.warning("TAK integration unavailable: %s", _tak_init_err)
+
+
+def _start_marti_server() -> None:
+    """Serve the Marti data package API on the TAK server HTTP port (default 8080),
+    where ATAK looks for it when connected over TCP."""
+    if not _marti_router or MARTI_PORT <= 0:
+        return
+    import uvicorn as _uv
+    marti_app = FastAPI(title="LPU5 Marti", docs_url=None, redoc_url=None, openapi_url=None)
+    marti_app.include_router(_marti_router)
+    server = _uv.Server(_uv.Config(marti_app, host="0.0.0.0", port=MARTI_PORT, log_level="warning"))
+
+    def _run():
+        try:
+            server.run()
+        except Exception as e:
+            logger.warning("Marti API on port %s not started: %s", MARTI_PORT, e)
+
+    threading.Thread(target=_run, name="marti-http", daemon=True).start()
+    logger.info("✅ Marti data package API on http://0.0.0.0:%s/Marti", MARTI_PORT)
+
+
+# Map tiles for all devices in the TOC network, cached for offline use – see tile_server.py
+try:
+    import tile_server as _tile_server
+    tile_server = _tile_server.TileServer(base_path)
+    app.include_router(_tile_server.create_router(
+        tile_server, lambda auth: (_tak_current_user(auth) or {}).get("role") in ("admin", "operator")))
+    logger.info("Tile server enabled: /tiles/{source}/{z}/{x}/{y} (cache: tile_cache/, MBTiles: maps/)")
+except Exception as _tile_err:
+    tile_server = None
+    logger.warning("Tile server unavailable: %s", _tile_err)
+
 # Radio transcription (Whisper) – see radio_transcribe.py
 try:
     import radio_transcribe as _radio_transcribe
+    def _radio_broadcast(channel, event, data):
+        broadcast_websocket_update(channel, event, data)
+        if event == "radio_transcript" and tsl:
+            tsl.radio(data)
+
     radio_manager = _radio_transcribe.RadioTranscriber(
-        base_path, broadcast=broadcast_websocket_update, rtl_fm_finder=lambda name: _find_rtl_tool(name))
+        base_path, broadcast=_radio_broadcast, rtl_fm_finder=lambda name: _find_rtl_tool(name))
     app.include_router(_radio_transcribe.create_router(radio_manager, verify_token))
     logger.info("Radio transcription available (faster-whisper=%s)",
                 _radio_transcribe.RadioTranscriber.capabilities()["faster_whisper"])
@@ -14051,14 +14605,16 @@ def catch_all(full_path: str, request: Request):
     if full_path in _SPA_VIEWS:
         return RedirectResponse(url=f"/index.html#{_SPA_VIEWS[full_path]}", status_code=302)
 
-    candidate = os.path.join(base_path, full_path)
-    if os.path.isfile(candidate):
+    # Only web assets inside the program folder – never databases, configs,
+    # keys, source code or anything outside base_path (path traversal).
+    candidate = _security.static_path_allowed(base_path, full_path)
+    if candidate and os.path.isfile(candidate):
         ext = os.path.splitext(candidate)[1].lower()
         if ext == ".html":
             return FileResponse(candidate, media_type="text/html")
         return FileResponse(candidate)
-    candidate_index = os.path.join(candidate, "index.html")
-    if os.path.isfile(candidate_index):
+    candidate_index = _security.static_path_allowed(base_path, full_path.rstrip("/") + "/index.html")
+    if candidate_index and os.path.isfile(candidate_index):
         return FileResponse(candidate_index, media_type="text/html")
     raise HTTPException(status_code=404, detail=f"File {full_path} not found. Please use .html extension.")
 
@@ -14151,7 +14707,40 @@ if __name__ == "__main__":
                 logger.info(f"    - {protocol}://{ip}:8101/landing.html")
     
     logger.info("="*60)
-    
+
+    # LPU5 is a web application: every device in the TOC WLAN opens it in the
+    # browser. Print the address prominently (plus QR code for phones) and open
+    # the browser on this PC.
+    _web_url = f"{protocol}://{local_ip}:8101/"
+    print("\n" + "#" * 64)
+    print("#  LPU5 TACTICAL – WEB-ANWENDUNG LÄUFT")
+    print("#")
+    print(f"#  Im TOC-WLAN im Browser öffnen:   {_web_url}")
+    print(f"#  Feldgerät / Handy (EUD):         {protocol}://{local_ip}:8101/eud/")
+    print(f"#  ATAK/WinTAK:  TCP {local_ip}:8088  (Verbindungspaket im Admin-Bereich)")
+    if use_ssl:
+        print(f"#  Zertifikat für Geräte:           {protocol}://{local_ip}:8101/lpu5-ca.crt")
+    print("#  Dieses Fenster offen lassen – Schließen beendet den Server.")
+    print("#" * 64)
+    try:
+        import qrcode as _qr
+        _q = _qr.QRCode(border=1)
+        _q.add_data(_web_url)
+        _q.make(fit=True)
+        _q.print_ascii(invert=True)
+    except Exception:
+        pass
+    print("")
+    if os.environ.get("LPU5_NO_BROWSER") != "1":
+        def _open_browser():
+            import webbrowser
+            time.sleep(3)
+            try:
+                webbrowser.open(f"{protocol}://127.0.0.1:8101/")
+            except Exception:
+                pass
+        threading.Thread(target=_open_browser, daemon=True).start()
+
     # Run with or without SSL
     if use_ssl:
         uvicorn.run(

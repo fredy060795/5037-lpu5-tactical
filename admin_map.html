@@ -1,14 +1,15 @@
 <html lang="en">
 
 <head>
+  <script src="/auth-fetch.js"></script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>TACTICAL ADMIN - Unified</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/browser-logo.png">
 
-  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+  <link href="/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
 
   <style>
     :root {
@@ -1385,9 +1386,9 @@
     <input id="ovFile" type="file" accept="image/*" />
   </div>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
   <!-- MilSymbol: spatialillusions/milsymbol for dynamic military symbol SVG generation -->
-  <script src="https://cdn.jsdelivr.net/npm/milsymbol@2.2.0/dist/milsymbol.js"></script>
+  <script src="/vendor/milsymbol/milsymbol.js"></script>
   <script src="intel-data.js"></script>
 
   <script>
@@ -1781,9 +1782,9 @@
       let activeBaseKey = ['street','sat','terrain'].includes(_savedBase) ? _savedBase : 'street';
 
       const _basemapSources = {
-        street:  { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
-        sat:     { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
-        terrain: { type: 'raster', tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
+        street:  { type: 'raster', tiles: [(location.origin + '/tiles/osm/{z}/{x}/{y}')],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
+        sat:     { type: 'raster', tiles: [(location.origin + '/tiles/sat/{z}/{x}/{y}')], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
+        terrain: { type: 'raster', tiles: [(location.origin + '/tiles/topo/{z}/{x}/{y}')],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
       };
 
       const _mlMap = new maplibregl.Map({

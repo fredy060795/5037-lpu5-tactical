@@ -3,6 +3,7 @@
 // cached data from IndexedDB first and render them, then try the server.
 
 import 'leaflet/dist/leaflet.css';
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import './style.css';
 import L from 'leaflet';
 import { Capacitor } from '@capacitor/core';
@@ -19,6 +20,10 @@ import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } fr
 import * as panels from './panels.js';
 import * as mesh from './mesh.js';
 import * as trust from './trust.js';
+import * as ops from './ops.js';
+import * as lockMod from './lock.js';
+import * as geofence from './geofence.js';
+import * as network from './network.js';
 
 const $ = (id) => document.getElementById(id);
 const STALE_MS = 5 * 60 * 1000;
@@ -49,6 +54,13 @@ async function boot() {
   await geo.restoreLastFix();
 
   initMap();
+  applyDisplaySettings();
+  await geofence.init(app.map, (text) => {
+    toast(`⚠ Geofence – ${text}`, 8000);
+    if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]);
+  });
+  await lockMod.lock();          // PIN before anything is shown
+  lockMod.installAutoLock();
   await renderAll();
   updateSelf(geo.getLastFix(), true);
   bindUi();
@@ -115,14 +127,37 @@ function initMap() {
   });
   map.on('dragstart', () => setFollow(false));
   map.on('contextmenu', (e) => panels.addMarker(e.latlng));
-  map.on('click', (e) => { if (app.measure) measureAdd(e.latlng); });
+  map.on('click', (e) => { if (app.measure && !app.drawing) measureAdd(e.latlng); });
   updateCenterReadout();
 }
 
 export async function availableBasemaps() {
   const imported = (await store.get('kv', 'mbtilesLayers')) || [];
   const custom = store.setting('customTiles', null);
-  return [...BASEMAPS, ...(custom ? [custom] : []), ...imported];
+  return [...(await serverBasemaps()), ...BASEMAPS, ...(custom ? [custom] : []), ...imported];
+}
+
+// Map tiles via the LPU5 server (tile_server.py): works in a TOC without
+// internet, and every tile is also cached on this device.
+async function serverBasemaps() {
+  if (!sync.state.server) return [];
+  let sources = (await store.get('kv', 'serverTileSources')) || null;
+  if (sync.state.link !== 'offline' || !sources) {
+    try {
+      const r = await fetch(sync.serverUrl('/api/tiles/sources'));
+      if (r.ok) {
+        sources = (await r.json()).sources;
+        await store.put('kv', sources, 'serverTileSources');
+      }
+    } catch (_) { /* keep cached list */ }
+  }
+  return (sources || [{ id: 'osm', name: 'OpenStreetMap', max_zoom: 19 }]).map((src) => ({
+    id: `srv-${src.id}`,
+    name: `LPU5-Server: ${src.name}`,
+    url: sync.serverUrl(`/tiles/${src.id}/{z}/{x}/{y}`),
+    maxNativeZoom: src.max_zoom || 19,
+    attribution: 'LPU5',
+  }));
 }
 
 export async function setBasemap(id) {
@@ -260,7 +295,7 @@ export async function clearTrack() {
 
 export function setFollow(on) {
   app.follow = on;
-  document.querySelector('[data-action=locate]').classList.toggle('active', on);
+  document.querySelectorAll('[data-action=locate]').forEach((b) => b.classList.toggle('active', on));
   if (on) {
     const fix = geo.getLastFix();
     if (fix) app.map.setView([fix.lat, fix.lng], Math.max(app.map.getZoom(), 15));
@@ -303,7 +338,7 @@ function updateNav() {
 function startMeasure() {
   app.measure = { pts: [], line: L.polyline([], { color: '#ff3b3b', weight: 3 }).addTo(app.map), dots: L.layerGroup().addTo(app.map) };
   $('measure-bar').classList.remove('hidden');
-  document.querySelector('[data-action=measure]').classList.add('active');
+  document.querySelectorAll('[data-action=measure]').forEach((b) => b.classList.add('active'));
   updateMeasure();
 }
 
@@ -313,7 +348,7 @@ function stopMeasure() {
   app.map.removeLayer(app.measure.dots);
   app.measure = null;
   $('measure-bar').classList.add('hidden');
-  document.querySelector('[data-action=measure]').classList.remove('active');
+  document.querySelectorAll('[data-action=measure]').forEach((b) => b.classList.remove('active'));
 }
 
 function measureAdd(ll) {
@@ -335,19 +370,36 @@ function updateMeasure() {
 // ---- UI wiring ---------------------------------------------------------------------------
 
 function bindUi() {
-  $('toolbar').addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
+  // Every control outside the sheet carries data-action (top bar, compass, quick buttons, menu tiles).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn || btn.closest('#sheet')) return;
     const action = btn.dataset.action;
+    const fromMenu = Boolean(btn.closest('#status-menu'));
+    if (fromMenu || action === 'menu-close') toggleMenu(false);
+    if (action === 'menu-close') return;
     if (action !== 'measure' && app.measure) stopMeasure();
     switch (action) {
+      case 'menu': panels.close(); toggleMenu(); break;
+      case 'zoom-in': app.map.zoomIn(); break;
+      case 'zoom-out': app.map.zoomOut(); break;
       case 'locate': setFollow(!app.follow); break;
-      case 'north': toggleCompass(btn); break;
+      case 'north': toggleCompass($('tsb-compass')); break;
       case 'add': panels.addMarker(app.map.getCenter()); break;
       case 'measure': app.measure ? stopMeasure() : startMeasure(); break;
+      case 'sync': manualSync(); break;
+      case 'night': {
+        const night = store.setting('displayMode', 'normal') === 'night';
+        store.saveSetting('displayMode', night ? 'normal' : 'night').then(applyDisplaySettings);
+        break;
+      }
+      case 'hq': location.href = sync.hqUrl(); break;
       default: panels.open(action);
     }
   });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleMenu(false); });
+  startClock();
+  startBattery();
   $('measure-undo').onclick = () => {
     if (!app.measure || !app.measure.pts.length) return;
     app.measure.pts.pop();
@@ -364,16 +416,14 @@ function bindUi() {
     $('login-error').textContent = '';
     $('login-submit').disabled = true;
     try {
-      await sync.login($('login-server').value, $('login-user').value, $('login-pass').value);
-      await store.saveSetting('offlineMode', false);
-      afterLogin();
-      trust.offerBrowserInstall(sync.state.server).catch(() => {});
+      await connectTo($('login-server').value, $('login-user').value, $('login-pass').value);
     } catch (err) {
       $('login-error').textContent = loginErrorText(err);
     } finally {
       $('login-submit').disabled = false;
     }
   });
+  $('login-network').onclick = () => { $('login').classList.add('hidden'); panels.open('network'); };
   $('login-offline').onclick = async () => {
     await store.saveSetting('offlineMode', true);
     $('login').classList.add('hidden');
@@ -381,7 +431,52 @@ function bindUi() {
   };
 }
 
-function loginErrorText(err) {
+/** Forced password change (default or admin-assigned password). */
+export async function forcePasswordChange(oldPassword = '') {
+  const dlg = $('pw-dialog');
+  dlg.classList.remove('hidden');
+  $('pw-old').value = oldPassword;
+  $('pw-old').closest('label').classList.toggle('hidden', Boolean(oldPassword));
+  $('pw-error').textContent = '';
+  await new Promise((resolve) => {
+    $('pw-form').onsubmit = async (e) => {
+      e.preventDefault();
+      if ($('pw-new').value !== $('pw-new2').value) { $('pw-error').textContent = 'Passwörter stimmen nicht überein'; return; }
+      try {
+        await sync.changePassword($('pw-old').value, $('pw-new').value);
+        resolve();
+      } catch (err) {
+        $('pw-error').textContent = err.message;
+      }
+    };
+  });
+  dlg.classList.add('hidden');
+  toast('Passwort geändert');
+  sync.reconnect();
+}
+
+/**
+ * Log in to a server (login screen and server network). Switching to another
+ * server first drops the data of the previous one, so nothing ends up on the wrong server.
+ */
+export async function connectTo(server, username, password) {
+  const url = network.normaliseUrl(server);
+  if (sync.isLoggedIn() && sync.state.server !== url) {
+    await sync.logout();
+    await sync.clearServerData();
+  }
+  const u = await sync.login(url, username, password);
+  await store.saveSetting('offlineMode', false);
+  await store.saveSetting('lastServer', sync.state.server);
+  await network.remember({ url: sync.state.server, user: username, lastOk: Date.now() });
+  if (u.mustChangePassword) await forcePasswordChange(password);
+  if (!store.setting('basemapChosen', false)) setBasemap('srv-osm');
+  afterLogin();
+  trust.offerBrowserInstall(sync.state.server).catch(() => {});
+  return u;
+}
+
+export function loginErrorText(err) {
   if (err.status === 401) return 'Benutzername oder Passwort falsch';
   if (err.status === 495) return err.message;
   if (err.name === 'AbortError' || err instanceof TypeError) {
@@ -398,6 +493,65 @@ export function showLogin() {
   $('login').classList.remove('hidden');
 }
 
+function toggleMenu(force) {
+  const menu = $('status-menu');
+  const show = force ?? !menu.classList.contains('open');
+  menu.classList.toggle('open', show);
+  document.querySelectorAll('[data-action=menu]').forEach((b) => b.classList.toggle('active', show));
+  if (show) $('tile-hq').classList.toggle('hidden', !(sync.isLoggedIn() && sync.isAdmin()));
+}
+
+async function manualSync() {
+  if (!sync.isLoggedIn()) { toast('Nicht angemeldet – Offline-Betrieb'); return; }
+  const btns = document.querySelectorAll('[data-action=sync] i');
+  btns.forEach((i) => i.classList.add('fa-spin'));
+  try {
+    sync.reconnect();
+    await sync.flushOutbox();
+    await sync.pullAll();
+    geofence.refresh();
+    toast('Lage synchronisiert');
+  } catch (_) {
+    toast('Sync fehlgeschlagen – Daten bleiben lokal erhalten');
+  } finally {
+    btns.forEach((i) => i.classList.remove('fa-spin'));
+  }
+}
+
+function startClock() {
+  const tick = () => {
+    const d = new Date();
+    $('tsb-clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  tick();
+  setInterval(tick, 10000);
+}
+
+async function startBattery() {
+  const wrap = $('tsb-battery');
+  if (!navigator.getBattery) { wrap.classList.add('hidden'); return; }
+  try {
+    const bat = await navigator.getBattery();
+    const show = () => {
+      const pct = Math.round(bat.level * 100);
+      const lvl = pct > 87 ? 'full' : pct > 62 ? 'three-quarters' : pct > 37 ? 'half' : pct > 12 ? 'quarter' : 'empty';
+      wrap.querySelector('i').className = `fas fa-battery-${lvl}${bat.charging ? ' charging' : ''}`;
+      wrap.classList.toggle('low', pct <= 20 && !bat.charging);
+      $('tsb-battery-level').textContent = `${pct}%`;
+    };
+    show();
+    bat.addEventListener('levelchange', show);
+    bat.addEventListener('chargingchange', show);
+  } catch (_) { wrap.classList.add('hidden'); }
+}
+
+function updateCompassWidget() {
+  const h = geo.getHeading() ?? geo.getLastFix()?.course;
+  const ok = h != null && !Number.isNaN(h);
+  $('compass-needle-group').setAttribute('transform', `rotate(${ok ? -h : 0} 14 14)`);
+  $('tsb-compass-bearing').textContent = ok ? `${String(Math.round((h + 360) % 360)).padStart(3, '0')}°` : '---°';
+}
+
 async function toggleCompass(btn) {
   if (btn.classList.contains('active')) { btn.classList.remove('active'); return; }
   const ok = await geo.startCompass();
@@ -408,7 +562,7 @@ async function toggleCompass(btn) {
 function bindSync() {
   sync.on('link', (link) => {
     const el = $('sb-link');
-    el.className = `sb-item link ${link}`;
+    el.className = `link ${link}`;
     el.textContent = { online: 'ONLINE', degraded: 'VERBINDE…', offline: 'OFFLINE' }[link];
     if (link === 'online') {
       const fix = geo.getLastFix();
@@ -418,6 +572,7 @@ function bindSync() {
   let renderQueued = false;
   sync.on('data', (d) => {
     if (d.overlays || d.drawings || d.full) renderOverlays();
+    if (d.full) geofence.refresh();
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; renderMarkers(); });
@@ -430,8 +585,18 @@ function bindSync() {
   sync.on('chat', (msg) => panels.onChat(msg));
   sync.on('radio', (e) => panels.onRadio(e));
   sync.on('detection', (d) => panels.onDetection(d));
+  sync.on('alert', (a) => ops.onAlert(a));
+  sync.on('geofence', () => geofence.refresh());
+  sync.on('report', (r) => ops.onReport(r));
+  sync.on('package', (p) => ops.onPackage(p));
+  sync.on('password-required', () => { if ($('pw-dialog').classList.contains('hidden')) forcePasswordChange(); });
+  sync.on('wipe', async () => {
+    // Remote wipe requested by an administrator (lost or captured device).
+    await sync.confirmWipe();
+    await lockMod.wipeLocal('Die Einsatzzentrale hat die Löschung dieses Geräts angeordnet.');
+  });
 
-  geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); });
+  geo.onFix((fix) => { updateSelf(fix); updateCompassWidget(); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); geofence.check(fix); });
   mesh.on('data', () => renderMarkers());
   mesh.on('text', (msg) => panels.onMeshText(msg));
   mesh.on('status', (st) => {
@@ -442,6 +607,7 @@ function bindSync() {
     if (st.status === 'disconnected' && st.error) toast(`Mesh: ${st.error}`, 5000);
     panels.onMeshStatus();
   });
+  geo.onHeading(updateCompassWidget);
   geo.onHeading(() => { const f = geo.getLastFix(); if (f && app.selfMarker) app.selfMarker.setIcon(selfIcon(Date.now() - f.time > 60000, geo.getHeading())); });
 
   // Re-evaluate staleness of contacts and own fix periodically.
@@ -453,6 +619,7 @@ function bindSync() {
 let toastTimer;
 export function toast(text, ms = 3000) {
   const el = $('toast');
+  if (!el) return; // e.g. after a local wipe replaced the page
   el.textContent = text;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
@@ -460,6 +627,12 @@ export function toast(text, ms = 3000) {
 }
 
 export function centerReadout() { updateCenterReadout(); }
+
+/** Night mode (red, dimmed) and large controls for gloves. */
+export function applyDisplaySettings() {
+  document.body.classList.toggle('night', store.setting('displayMode', 'normal') === 'night');
+  document.body.classList.toggle('large-ui', Boolean(store.setting('largeUi', false)));
+}
 export { renderTrack, escapeHtml };
 
 boot().catch((e) => {

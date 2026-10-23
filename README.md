@@ -1,3 +1,9 @@
+# LPU5 Tactical
+
+**Handbuch: [HANDBUCH.md](HANDBUCH.md)** – Start, Feldgeräte, ATAK-Integration, Videoanalyse,
+Funk-Mitschrift, TSL, Karten, Sicherheit. Regeln für Mitwirkende: [Regeln.md](Regeln.md),
+Funktionsübersicht: [Funktzions.md](Funktzions.md). Ältere Dokumente: [docs/archiv/](docs/archiv/).
+
 #⚠️ Project Status: Work in Progress
 # LPU-5-system
 
@@ -136,7 +142,7 @@ curl -X POST http://localhost:8101/api/gateway/start \
   -d '{"port": "COM7", "auto_sync": true, "sync_interval": 300}'
 ```
 
-**See**: [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment guide
+**See**: [DEPLOYMENT.md](docs/archiv/DEPLOYMENT.md) for complete deployment guide
 
 ## Installation
 
@@ -176,7 +182,7 @@ After making configuration changes or code updates, restart the server:
 restart_lpu5.bat
 ```
 
-See [RESTART_GUIDE.md](RESTART_GUIDE.md) for detailed restart procedures and troubleshooting.
+See [RESTART_GUIDE.md](docs/archiv/RESTART_GUIDE.md) for detailed restart procedures and troubleshooting.
 
 ### Optional: Meshtastic Gateway Dependencies
 For gateway functionality, install additional packages:
@@ -329,7 +335,7 @@ For development or non-mobile access:
 
 **Recommendation**: Use platform-specific implementations (iOS PWA or Android Native) for production.
 
-For detailed compatibility, see [DEPLOYMENT.md](DEPLOYMENT.md).
+For detailed compatibility, see [DEPLOYMENT.md](docs/archiv/DEPLOYMENT.md).
 
 ## Development
 
@@ -386,27 +392,27 @@ lpu5-tactical/
 ### Platform-Specific Guides
 - **[iOS PWA Guide](pwa/README.md)** - Complete iOS installation and usage
 - **[Android Native Guide](android/README.md)** - Android app development and deployment
-- **[Deployment Guide](DEPLOYMENT.md)** - Detailed deployment for both platforms
-- **[Architecture Guide](MULTI_PLATFORM_ARCHITECTURE.md)** - System architecture and design
-- **[Restart Guide](RESTART_GUIDE.md)** - System restart procedures and troubleshooting
+- **[Deployment Guide](docs/archiv/DEPLOYMENT.md)** - Detailed deployment for both platforms
+- **[Architecture Guide](docs/archiv/MULTI_PLATFORM_ARCHITECTURE.md)** - System architecture and design
+- **[Restart Guide](docs/archiv/RESTART_GUIDE.md)** - System restart procedures and troubleshooting
 
 ### Technical Documentation
 - **[Meshtastic User Guide](MESHTASTIC_GUIDE.md)** - Using Meshtastic features
-- **[Meshtastic Technical](MESHTASTIC_TECHNICAL.md)** - Technical implementation details
+- **[Meshtastic Technical](docs/archiv/MESHTASTIC_TECHNICAL.md)** - Technical implementation details
 
 ### Quick Reference
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | [README.md](README.md) | Project overview | Everyone |
-| [PLATFORM_COMPARISON.md](PLATFORM_COMPARISON.md) | **Platform selection guide** | **Decision makers** |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Installation & deployment | Administrators |
+| [PLATFORM_COMPARISON.md](docs/archiv/PLATFORM_COMPARISON.md) | **Platform selection guide** | **Decision makers** |
+| [DEPLOYMENT.md](docs/archiv/DEPLOYMENT.md) | Installation & deployment | Administrators |
 | [pwa/IOS_INSTALL.md](pwa/IOS_INSTALL.md) | **iOS installation walkthrough** | **iOS users** |
 | [pwa/README.md](pwa/README.md) | iOS PWA technical docs | iOS users & developers |
 | [android/DISTRIBUTION.md](android/DISTRIBUTION.md) | **Android APK distribution** | **IT staff** |
 | [android/README.md](android/README.md) | Android app technical docs | Android users & developers |
-| [MULTI_PLATFORM_ARCHITECTURE.md](MULTI_PLATFORM_ARCHITECTURE.md) | System design | Developers & architects |
+| [MULTI_PLATFORM_ARCHITECTURE.md](docs/archiv/MULTI_PLATFORM_ARCHITECTURE.md) | System design | Developers & architects |
 | [MESHTASTIC_GUIDE.md](MESHTASTIC_GUIDE.md) | Meshtastic features | All users |
-| [RESTART_GUIDE.md](RESTART_GUIDE.md) | Restart procedures | Administrators |
+| [RESTART_GUIDE.md](docs/archiv/RESTART_GUIDE.md) | Restart procedures | Administrators |
 
 ## License
 

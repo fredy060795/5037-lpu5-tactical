@@ -1,6 +1,7 @@
 <html lang="en">
 
 <head>
+  <script src="/auth-fetch.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#1a1a1a">
@@ -8,8 +9,8 @@
   <link rel="icon" type="image/png" href="/browser-logo.png">
   <title>TACTICAL MAP - PRECISION MOBILE</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
   <style>
     :root {
       --bg-dark: #0a0a0a;
@@ -1354,8 +1355,8 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/vendor/dexie/dexie.js"></script>
   <script src="assets/api-client.js"></script>
   <script src="assets/ws-client.js"></script>
   <!-- <script src="intel-data.js"></script> -->
@@ -1365,7 +1366,7 @@
   <script src="cot-client.js"></script>
   <script src="message-queue-manager.js"></script>
   <!-- MilSymbol: spatialillusions/milsymbol for dynamic military symbol SVG generation -->
-  <script src="https://cdn.jsdelivr.net/npm/milsymbol@2.2.0/dist/milsymbol.js"></script>
+  <script src="/vendor/milsymbol/milsymbol.js"></script>
   
   <script>
     /* Overview map with immediate (optimistic) marker placement and persistent pending markers.
@@ -2195,14 +2196,14 @@
       // Set new layer based on type
       switch (layerType) {
         case 'satellite':
-          baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), {
             attribution: '© Esri',
             maxZoom: 19
           }).addTo(map);
           currentLayerType = 'satellite';
           break;
         case 'terrain':
-          baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), {
             attribution: '© OpenTopoMap contributors',
             maxZoom: 17
           }).addTo(map);
@@ -2210,7 +2211,7 @@
           break;
         case 'street':
         default:
-          baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), {
             attribution: '© OpenStreetMap contributors'
           }).addTo(map);
           currentLayerType = 'street';
@@ -2242,7 +2243,6 @@
           // Cache credentials and token in localStorage
           if (r.token) localStorage.setItem('token', r.token);
           localStorage.setItem('lpu5_cached_user', u);
-          localStorage.setItem('lpu5_cached_pass', p);
           localStorage.setItem('lpu5_username', currentUserName);
           sessionStorage.setItem('currentUser', currentUserName);
           // Auto-update callsign from server
@@ -2268,8 +2268,27 @@
     // Auto-login from cached credentials
     async function tryAutoLogin() {
       const cachedUser = localStorage.getItem('lpu5_cached_user');
-      const cachedPass = localStorage.getItem('lpu5_cached_pass');
-      if (!cachedUser || !cachedPass) {
+      // Passwords are no longer stored in the browser (security); old copies are removed.
+      localStorage.removeItem('lpu5_cached_pass');
+      const cachedToken = localStorage.getItem('token');
+      if (cachedUser && cachedToken) {
+        try {
+          const meRes = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + cachedToken } });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            currentUserName = me.username;
+            localStorage.setItem('lpu5_username', currentUserName);
+            sessionStorage.setItem('currentUser', currentUserName);
+            if (me.callsign) localStorage.setItem('lpu5_local_callsign', me.callsign);
+            document.getElementById('out-name').innerText = currentUserName.toUpperCase();
+            isLoggedIn = true;
+            startDataSync();
+            return true;
+          }
+        } catch (e) { /* offline – handled below */ }
+      }
+      const cachedPass = null;
+      if (!cachedUser || !cachedToken) {
         // No server credentials – check for local-only callsign (Team / offline mode)
         var localCallsign = localStorage.getItem('lpu5_local_callsign');
         if (localCallsign) {
@@ -2282,6 +2301,7 @@
         return false;
       }
       try {
+        if (!cachedPass) throw new Error('session expired or offline');
         const res = await fetch('/api/login_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: cachedUser, password: cachedPass }) });
         if (res.ok) {
           const r = await res.json();
@@ -2339,6 +2359,7 @@
     function initMap() {
       if (map) return;
       map = L.map('map', { zoomSnap: 0.1, zoomControl: false }).setView([51.505, -0.09], 15);
+      _installTransformAwareInput(map);
 
       // Restore saved map layer preference or use street as default
       let savedLayer = 'street';
@@ -2351,14 +2372,14 @@
       // Initialize with saved or default layer
       switch (savedLayer) {
         case 'satellite':
-          baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), {
             attribution: '© Esri',
             maxZoom: 19
           }).addTo(map);
           currentLayerType = 'satellite';
           break;
         case 'terrain':
-          baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), {
             attribution: '© OpenTopoMap contributors',
             maxZoom: 17
           }).addTo(map);
@@ -2366,7 +2387,7 @@
           break;
         case 'street':
         default:
-          baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          baseLayer = L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), {
             attribution: '© OpenStreetMap contributors'
           }).addTo(map);
           currentLayerType = 'street';
@@ -2523,6 +2544,118 @@
     }
     function mapZoomIn() { if (map) map.zoomIn(); }
     function mapZoomOut() { if (map) map.zoomOut(); }
+
+    // ---- Way back to the main (HQ) view for admins / operators ----
+    // The field view had no navigation back; admins who opened it from the
+    // main view were stuck. The role comes from /api/me.
+    (function () {
+      function showHqButton() {
+        window.__lpu5CanLeaveEud = true;
+        if (document.getElementById('tsb-hq')) return;
+        const actions = document.querySelector('#top-status-bar .tsb-actions');
+        if (!actions) return;
+        const btn = document.createElement('button');
+        btn.className = 'tsb-btn';
+        btn.id = 'tsb-hq';
+        btn.title = 'Zur Hauptansicht (HQ)';
+        btn.innerHTML = '<i class="fas fa-desktop"></i>';
+        btn.onclick = function (e) { e.preventDefault(); location.href = '/index.html'; };
+        actions.insertBefore(btn, actions.firstChild);
+      }
+      function check() {
+        let token = '';
+        try { token = localStorage.getItem('token') || ''; } catch (e) {}
+        if (!token) return;
+        fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (me) {
+            if (me && (me.role === 'admin' || me.role === 'operator')) showHqButton();
+          })
+          .catch(function () {});
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check); else check();
+      // Keyboard shortcut for desktop admins: Alt+H
+      document.addEventListener('keydown', function (e) {
+        if (e.altKey && (e.key === 'h' || e.key === 'H') && window.__lpu5CanLeaveEud) location.href = '/index.html';
+      });
+    })();
+
+    // ---- Pointer input for the rotated / tilted map ----
+    // The map element is rotated (bearing) and tilted (pitch) with a CSS
+    // transform. Leaflet computes positions from untransformed screen
+    // coordinates, so dragging, tapping and marker placement went wrong as
+    // soon as the map was turned or tilted. Screen points are mapped back
+    // onto the untransformed map plane here (exact inverse of
+    // "perspective(600px) rotateX(pitch) rotate(bearing)" around the centre).
+    const _MAP_PERSPECTIVE = 600;
+    function _screenToMapPlane(clientX, clientY) {
+      const mapEl = document.getElementById('map');
+      const cx = mapEl.offsetLeft + mapEl.offsetWidth / 2;
+      const cy = mapEl.offsetTop + mapEl.offsetHeight / 2;
+      let X = clientX - cx, Y = clientY - cy;
+      let x = X, y = Y;
+      if (mapPitch > 0) {
+        const a = mapPitch * Math.PI / 180, d = _MAP_PERSPECTIVE;
+        y = (Y * d) / (d * Math.cos(a) + Y * Math.sin(a));
+        x = X * (d - y * Math.sin(a)) / d;
+      }
+      if (mapBearing) {
+        const b = -mapBearing * Math.PI / 180;
+        const rx = x * Math.cos(b) - y * Math.sin(b);
+        const ry = x * Math.sin(b) + y * Math.cos(b);
+        x = rx; y = ry;
+      }
+      return { x: x + mapEl.offsetWidth / 2, y: y + mapEl.offsetHeight / 2 };
+    }
+    function _mapIsTransformed() { return !!(mapBearing || mapPitch > 0); }
+
+    function _installTransformAwareInput(m) {
+      // Clicks, taps, context menu, wheel zoom position
+      const origToContainer = m.mouseEventToContainerPoint.bind(m);
+      m.mouseEventToContainerPoint = function (e) {
+        if (!_mapIsTransformed()) return origToContainer(e);
+        const p = _screenToMapPlane(e.clientX, e.clientY);
+        return L.point(p.x, p.y);
+      };
+      // Dragging: feed Leaflet's Draggable with map-plane coordinates
+      const drag = m.dragging && m.dragging._draggable;
+      if (!drag) {
+        m.once('dragstart', function () { _installTransformAwareInput(m); });
+        return;
+      }
+      if (drag.__lpu5Patched) return;
+      drag.__lpu5Patched = true;
+      function planeEvent(e) {
+        if (!_mapIsTransformed()) return e;
+        const src = (e.touches && e.touches.length) ? e.touches[0] : e;
+        const p = _screenToMapPlane(src.clientX, src.clientY);
+        const touches = (e.touches && e.touches.length)
+          ? [{ clientX: p.x, clientY: p.y, target: e.touches[0].target }].concat(Array.prototype.slice.call(e.touches, 1))
+          : e.touches;
+        return new Proxy(e, {
+          get: function (t, k) {
+            if (k === 'clientX') return p.x;
+            if (k === 'clientY') return p.y;
+            if (k === 'touches') return touches;
+            const v = t[k];
+            return typeof v === 'function' ? v.bind(t) : v;
+          }
+        });
+      }
+      const origDown = drag._onDown, origMove = drag._onMove;
+      drag._onDown = function (e) {
+        const r = origDown.call(this, planeEvent(e));
+        if (_mapIsTransformed() && this._parentScale) {
+          // getScale() measures the transformed bounding box – irrelevant on the plane
+          this._parentScale = { x: 1, y: 1, boundingClientRect: this._parentScale.boundingClientRect };
+        }
+        return r;
+      };
+      drag._onMove = function (e) { return origMove.call(this, planeEvent(e)); };
+      // Re-bind the DOM listeners to the patched handlers
+      L.DomEvent.off(drag._dragStartTarget, L.Browser.touch ? 'touchstart mousedown' : 'mousedown', origDown, drag);
+      L.DomEvent.on(drag._dragStartTarget, L.Browser.touch ? 'touchstart mousedown' : 'mousedown', drag._onDown, drag);
+    }
 
     // ---- Compass / Map Rotation ----
     let mapBearing = 0;
@@ -5619,6 +5752,9 @@
       html += sidebarTile('tile-contacts','fas fa-address-book','Contacts',"openMenuPopup('contacts')");
       html += sidebarTile('tile-sync',   'fas fa-sync-alt',    'Sync',  'closeHamburgerMenu();refreshAllData()');
       html += sidebarTile('tile-night', 'fas fa-moon', 'Nacht', 'closeHamburgerMenu();toggleNightMode()');
+      if (window.__lpu5CanLeaveEud) {
+        html += sidebarTile('tile-hq', 'fas fa-desktop', 'Hauptansicht', "location.href='/index.html'");
+      }
       grid.innerHTML = html;
     }
 
@@ -5969,13 +6105,24 @@
       return d.innerHTML;
     }
 
+    // Server passwords are kept in memory only (never written to localStorage).
+    var _nwPassMemory = {};
     function _nwGetServers() {
-      try { return JSON.parse(localStorage.getItem(_NW_KEY) || '[]'); }
+      var list;
+      try { list = JSON.parse(localStorage.getItem(_NW_KEY) || '[]'); }
       catch(e) { return []; }
+      var migrate = false;
+      list.forEach(function (s) {
+        if (s.pass) { _nwPassMemory[s.id] = s.pass; migrate = true; }
+        else if (_nwPassMemory[s.id]) s.pass = _nwPassMemory[s.id];
+      });
+      if (migrate) _nwSaveServers(list);  // remove passwords stored by older versions
+      return list;
     }
 
     function _nwSaveServers(list) {
-      localStorage.setItem(_NW_KEY, JSON.stringify(list));
+      list.forEach(function (s) { if (s.pass) _nwPassMemory[s.id] = s.pass; });
+      localStorage.setItem(_NW_KEY, JSON.stringify(list.map(function (s) { return Object.assign({}, s, { pass: '' }); })));
     }
 
     function _nwGenId() {
@@ -6340,7 +6487,6 @@
             currentUserName = r.user.username;
             if (r.token) localStorage.setItem('token', r.token);
             localStorage.setItem('lpu5_cached_user', srv.user);
-            localStorage.setItem('lpu5_cached_pass', srv.pass);
             localStorage.setItem('lpu5_username', currentUserName);
             sessionStorage.setItem('currentUser', currentUserName);
             // Auto-update callsign from server
@@ -6386,7 +6532,6 @@
     function _nwCotFallback(srv, servers, silent, msg) {
       currentUserName = srv.user;
       localStorage.setItem('lpu5_cached_user', srv.user);
-      localStorage.setItem('lpu5_cached_pass', srv.pass);
       localStorage.setItem('lpu5_username', srv.user);
       sessionStorage.setItem('currentUser', srv.user);
       document.getElementById('out-name').innerText = srv.user.toUpperCase();

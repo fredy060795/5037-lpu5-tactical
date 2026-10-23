@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/auth-fetch.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LPU5 - Tactical System</title>
@@ -11,14 +12,14 @@
     <!-- ═══════════════════════════════════════════════════════════════
          CDN Dependencies (deduplicated from all merged pages)
          ═══════════════════════════════════════════════════════════════ -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/milsymbol@2.2.0/dist/milsymbol.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link href="/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
+    <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+    <script src="/vendor/milsymbol/milsymbol.js"></script>
+    <script src="/vendor/fontawesome/js/all.min.js"></script>
+    <script src="/vendor/jsqr/jsQR.min.js"></script>
     <script src="/assets/qrcode.min.js"></script>
-    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="/vendor/dexie/dexie.js"></script>
 
     <!-- ═══════════════════════════════════════════════════════════════
          SPA Shell Styles
@@ -13424,6 +13425,13 @@ window.addEventListener('storage', (e) => {
     }
 
     // Load pending registrations
+    // New registrations show up without reloading; a running selection or edit is not disturbed.
+    if (window._pendingRegTimer) clearInterval(window._pendingRegTimer);
+    window._pendingRegTimer = setInterval(() => {
+      const busy = document.querySelector('.pending-checkbox:checked') || (document.activeElement && document.activeElement.classList.contains('pending-unit'));
+      if (!busy && document.getElementById('pendingList') && !document.hidden) loadPendingRegistrations();
+    }, 20000);
+
     async function loadPendingRegistrations() {
       const container = document.getElementById('pendingList');
       if (!container) return;
@@ -13447,24 +13455,71 @@ window.addEventListener('storage', (e) => {
           }
         }
         
+        // Pending count next to the section title (also updated by the auto refresh)
+        const title = container.parentElement && container.parentElement.querySelector('h3');
+        if (title) {
+          let badge = document.getElementById('pendingCount');
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.id = 'pendingCount';
+            badge.style.cssText = 'margin-left:8px;padding:2px 9px;border-radius:10px;background:#c0392b;color:#fff;font-size:0.8em;';
+            title.appendChild(badge);
+          }
+          badge.textContent = pending && pending.length ? String(pending.length) : '';
+          badge.style.display = pending && pending.length ? 'inline-block' : 'none';
+        }
+        // Same count on the tab button, so new registrations are seen from any tab
+        const tab = container.closest('.tab-content');
+        const tabName = tab && tab.id ? tab.id.replace(/^tab-/, '') : '';
+        const tabBtn = tabName && Array.from(document.querySelectorAll('.tab-btn')).find(b => (b.getAttribute('onclick') || '').includes(`'${tabName}'`));
+        if (tabBtn) {
+          let tb = tabBtn.querySelector('.pending-tab-count');
+          if (!tb) {
+            tb = document.createElement('span');
+            tb.className = 'pending-tab-count';
+            tb.title = 'Offene Registrierungen';
+            tb.style.cssText = 'margin-left:6px;padding:1px 7px;border-radius:9px;background:#c0392b;color:#fff;font-size:0.8em;';
+            tabBtn.appendChild(tb);
+          }
+          tb.textContent = pending && pending.length ? String(pending.length) : '';
+          tb.style.display = pending && pending.length ? 'inline-block' : 'none';
+        }
+
         if (!pending || pending.length === 0) {
           container.innerHTML = '<div class="small">No pending registrations</div>';
           return;
         }
         
-        container.innerHTML = '';
+        // Registration data comes from a public form: always insert it escaped.
+        const e = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        let unitNames = [];
+        try {
+          const ur = await fetch('/api/units', { headers: getAuthHeaders() });
+          if (ur.ok) { const uj = await ur.json(); unitNames = (Array.isArray(uj) ? uj : (uj.units || [])).map(u => typeof u === 'string' ? u : u.name).filter(Boolean); }
+        } catch (_) { /* unit list is optional */ }
+        container.innerHTML = '<datalist id="pendingUnitList">' + unitNames.map(n => `<option value="${e(n)}">`).join('') + '</datalist>';
         pending.forEach(reg => {
           const div = document.createElement('div');
           div.style.cssText = 'padding:10px; border:1px solid #333; margin-bottom:8px; background:#1a1a1a; border-radius:6px;';
+          const local = !reg.id;
+          const details = [
+            reg.fullname ? e(reg.fullname) : '',
+            reg.source ? `Quelle: ${e(reg.source)}` : (reg.device ? `Gerät: ${e(reg.device)}` : ''),
+            reg.invite ? `Einladung: ${e(reg.invite)}` : '',
+            reg.client_ip ? `IP: ${e(reg.client_ip)}` : '',
+            reg.created_at ? e(new Date(reg.created_at).toLocaleString('de-DE')) : '',
+            local ? '<span style="color:#f39c12">nur in diesem Browser gespeichert</span>' : '',
+          ].filter(Boolean).join(' · ');
           div.innerHTML = `
-            <div style="display:flex; align-items:center; gap:12px;">
-              <input type="checkbox" class="pending-checkbox" data-username="${reg.username || ''}" />
-              <div class="pending-meta" style="flex:1;">
-                <strong>${reg.username || 'N/A'}</strong>
-                ${reg.device ? ` | Device: ${reg.device}` : ''}
-                ${reg.callsign ? ` | Mesh-Callsign: ${reg.callsign}` : ''}
-                ${reg.created_at ? ` | ${new Date(reg.created_at).toLocaleString('en-US')}` : ''}
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; flex:1;">
+              <input type="checkbox" class="pending-checkbox" data-username="${e(reg.username)}" />
+              <div class="pending-meta" style="flex:1; min-width:180px;">
+                <strong>${e(reg.username || 'N/A')}</strong>${reg.callsign ? ` · Rufname: ${e(reg.callsign)}` : ''}
+                <div class="small" style="color:#999;margin-top:3px;">${details}</div>
               </div>
+              <label class="small" style="display:flex;align-items:center;gap:6px;margin-left:auto;">Einheit
+                <input class="pending-unit" data-username="${e(reg.username)}" data-original="${e(reg.unit || '')}" value="${e(reg.unit || '')}" list="pendingUnitList" style="width:140px;padding:5px;background:#000;color:#fff;border:1px solid #444;border-radius:4px;">
+              </label>
             </div>
           `;
           container.appendChild(div);
@@ -13499,13 +13554,16 @@ window.addEventListener('storage', (e) => {
       for (const username of usernames) {
         try {
           // Try to activate user via API
+          // Unit corrected by the admin in the list (only sent when changed)
+          const unitInput = Array.from(document.querySelectorAll('.pending-unit')).find(i => i.dataset.username === username);
+          const unit = unitInput && unitInput.value.trim() !== (unitInput.dataset.original || '') ? unitInput.value.trim() : undefined;
           const res = await fetch('/api/approve_registration', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...getAuthHeaders()
             },
-            body: JSON.stringify({ username: username })
+            body: JSON.stringify({ username: username, unit: unit })
           });
           
           if (res.ok) {
@@ -13593,8 +13651,9 @@ window.addEventListener('storage', (e) => {
       await loadPendingRegistrations();
     }
 
-    // Initialize QR user select on page load
-    document.addEventListener('DOMContentLoaded', () => {
+    // Initialize QR user select when the admin view opens. This code runs from
+    // _spaInit_admin after the page has loaded, so DOMContentLoaded has already fired.
+    const _adminViewInit = () => {
       loadQRUsers();
       loadPendingRegistrations();
       const select = document.getElementById('qrUserSelect');
@@ -13604,7 +13663,9 @@ window.addEventListener('storage', (e) => {
         const inp = document.getElementById('qrBaseUrl');
         if (inp && info && info.base_url) inp.value = info.base_url;
       }).catch(e => { console.warn('Failed to pre-populate server URL', e); });
-    });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _adminViewInit);
+    else _adminViewInit();
 
     // createQRCode: called by onclick on the admin.html "Erstelle QR CODE" button
     async function createQRCode(){
@@ -14603,9 +14664,9 @@ window.addEventListener('storage', (e) => {
       let activeBaseKey = ['street','sat','terrain'].includes(_savedBase) ? _savedBase : 'street';
 
       const _basemapSources = {
-        street:  { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
-        sat:     { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
-        terrain: { type: 'raster', tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
+        street:  { type: 'raster', tiles: [(location.origin + '/tiles/osm/{z}/{x}/{y}')],         tileSize: 256, attribution: '© OpenStreetMap contributors', maxzoom: 19 },
+        sat:     { type: 'raster', tiles: [(location.origin + '/tiles/sat/{z}/{x}/{y}')], tileSize: 256, attribution: 'Tiles © Esri', maxzoom: 19 },
+        terrain: { type: 'raster', tiles: [(location.origin + '/tiles/topo/{z}/{x}/{y}')],            tileSize: 256, attribution: 'OpenTopoMap', maxzoom: 17 }
       };
 
       const _mlMap = new maplibregl.Map({
@@ -24633,10 +24694,10 @@ var layerState = {
 };
 var map = L.map('intel-map', { center: [20, 10], zoom: 2, zoomControl: true, attributionControl: false });
 var tiles = {
-    dark:      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }),
-    street:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-    topo:      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, opacity: 0.9 })
+    dark:      L.tileLayer((location.origin + '/tiles/dark/{z}/{x}/{y}'), { maxZoom: 19, subdomains: 'abcd' }),
+    street:    L.tileLayer((location.origin + '/tiles/osm/{z}/{x}/{y}'), { maxZoom: 19 }),
+    satellite: L.tileLayer((location.origin + '/tiles/sat/{z}/{x}/{y}'), { maxZoom: 19 }),
+    topo:      L.tileLayer((location.origin + '/tiles/topo/{z}/{x}/{y}'), { maxZoom: 17, opacity: 0.9 })
 };
 tiles.dark.addTo(map);
 var currentTile = 'dark';

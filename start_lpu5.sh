@@ -89,6 +89,16 @@ else
     fi
 
     # Install optional SDR dependencies (failure is non-fatal)
+    echo -e "${BLUE}[*]${NC} Installing optional packages (video analytics, radio transcription, tile server)..."
+    if pip install "opencv-python-headless>=4.8" "Pillow>=10.2" "scipy>=1.12" "faster-whisper>=1.1" "sounddevice>=0.5"; then
+        echo -e "${GREEN}[OK]${NC} Optional packages installed"
+    else
+        echo -e "${YELLOW}[WARN]${NC} Some optional packages failed - see /api/dependencies/check"
+    fi
+    if [ "${LPU5_SKIP_YOLO:-0}" != "1" ]; then
+        echo -e "${BLUE}[*]${NC} Installing YOLOv8 (ultralytics + PyTorch, first time ~1-2 GB)..."
+        pip install "ultralytics>=8.0" || echo -e "${YELLOW}[WARN]${NC} ultralytics not installed - video without AI detection (pip install ultralytics)"
+    fi
     echo -e "${BLUE}[*]${NC} Installing optional SDR dependencies (pyrtlsdr, numpy)..."
     if pip install "pyrtlsdr>=0.3.0" "numpy>=1.24.0"; then
         echo -e "${GREEN}[OK]${NC} Optional SDR dependencies installed"

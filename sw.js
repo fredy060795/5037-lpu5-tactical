@@ -14,10 +14,10 @@ const ASSETS = [
     '/browser-logo.png',
     '/assets/api-client.js',
     '/assets/ws-client.js',
-    'https://unpkg.com/dexie/dist/dexie.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css'
+    '/vendor/dexie/dexie.js',
+    '/vendor/leaflet/leaflet.css',
+    '/vendor/leaflet/leaflet.js',
+    '/vendor/fontawesome/css/all.min.css'
 ];
 
 // Install Event

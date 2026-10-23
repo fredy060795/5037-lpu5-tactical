@@ -6,11 +6,11 @@ import L from 'leaflet';
 import { kml, gpx } from '@tmcw/togeojson';
 import JSZip from 'jszip';
 import * as store from './store.js';
-import { overlayImage } from './sync.js';
+import { overlayImage, overlayFile } from './sync.js';
 import { escapeHtml } from './symbols.js';
 
-export async function importFile(file) {
-  const name = file.name;
+/** KML/KMZ/GPX/GeoJSON file (File or Blob + name) -> GeoJSON FeatureCollection. */
+export async function parseFile(file, name = file.name) {
   const ext = name.split('.').pop().toLowerCase();
   let geojson;
   if (ext === 'kmz') {
@@ -31,6 +31,12 @@ export async function importFile(file) {
   if (!geojson || !Array.isArray(geojson.features) || geojson.features.length === 0) {
     throw new Error('Datei enthält keine Geometrien');
   }
+  return geojson;
+}
+
+export async function importFile(file) {
+  const name = file.name;
+  const geojson = await parseFile(file);
   const overlay = {
     id: `local-ov-${Date.now()}`,
     name: name.replace(/\.[^.]+$/, ''),
@@ -69,7 +75,19 @@ function popupFor(f) {
 }
 
 /** Build a Leaflet layer for a stored overlay record. */
+const fileGeoCache = new Map();
+
 export async function layerFor(o) {
+  if (o.data && o.data.kind === 'file' && o.data.fileUrl) {
+    // Overlay file shared via the server (e.g. from an ATAK data package)
+    let geo = fileGeoCache.get(o.data.fileUrl);
+    if (!geo) {
+      const blob = await overlayFile(o.data.fileUrl);
+      geo = await parseFile(blob, `${o.name || 'overlay'}.${o.data.format || 'kml'}`);
+      fileGeoCache.set(o.data.fileUrl, geo);
+    }
+    o = { ...o, geojson: geo };
+  }
   if (o.kind === 'geojson' || o.geojson) {
     return L.geoJSON(o.geojson, {
       style: featureStyle,
@@ -103,7 +121,7 @@ export function drawingLayer(d) {
   } else if ((t === 'polygon' || t === 'rectangle') && coords.length > 2) {
     layer = L.polygon(coords, { ...style, fillOpacity: 0.15 });
   } else if (coords.length > 1) {
-    layer = L.polyline(coords, style);
+    layer = L.polyline(coords, t === 'route' ? { ...style, dashArray: '10 6' } : style);
   }
   if (layer && d.name) layer.bindPopup(`<strong>${escapeHtml(d.name)}</strong><div class="pop-desc">${escapeHtml(d.created_by || '')}</div>`);
   return layer;

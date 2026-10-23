@@ -106,6 +106,26 @@ if errorlevel 1 (
     echo [OK] Optional SDR dependencies installed
 )
 
+echo [*] Installing optional packages: video analytics, radio transcription, tile server ...
+pip install "opencv-python-headless>=4.8" "Pillow>=10.2" "scipy>=1.12" "faster-whisper>=1.1" "sounddevice>=0.5" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Some optional packages could not be installed ^(video analytics / radio transcription^).
+    echo [WARN] Status: https://localhost:8101/api/dependencies/check
+) else (
+    echo [OK] Optional packages installed
+)
+if "%LPU5_SKIP_YOLO%" == "1" (
+    echo [*] YOLO/ultralytics skipped ^(LPU5_SKIP_YOLO=1^)
+) else (
+    echo [*] Installing YOLOv8 ^(ultralytics + PyTorch, first time ~1-2 GB^) ...
+    pip install "ultralytics>=8.0" >nul 2>&1
+    if errorlevel 1 (
+        echo [WARN] ultralytics could not be installed - video runs without AI detection.
+        echo [WARN] Manually: pip install ultralytics
+    ) else (
+        echo [OK] YOLOv8 available
+    )
+)
 :skip_deps
 
 REM ── Hardware dependency checks ───────────────────────────────────────────
@@ -152,6 +172,26 @@ if not errorlevel 1 (
     echo [WARN] Use restart_lpu5.bat to restart the server.
     pause
     exit /b 1
+)
+
+REM ── Windows firewall: allow the other TOC devices to connect ─────────────
+REM LPU5 is a web application for the whole WLAN. Without these rules Windows
+REM blocks access from other PCs, phones and ATAK devices. Adding rules needs
+REM administrator rights; without them a hint is shown.
+netsh advfirewall firewall show rule name="LPU5 Tactical TCP" >nul 2>&1
+if errorlevel 1 (
+    netsh advfirewall firewall add rule name="LPU5 Tactical TCP" dir=in action=allow protocol=TCP localport=8101,8088,8080,8089 >nul 2>&1
+    netsh advfirewall firewall add rule name="LPU5 Tactical UDP" dir=in action=allow protocol=UDP localport=4242,6969 >nul 2>&1
+    netsh advfirewall firewall show rule name="LPU5 Tactical TCP" >nul 2>&1
+    if errorlevel 1 (
+        echo [WARN] Firewall-Freigabe nicht moeglich ^(keine Administratorrechte^).
+        echo [WARN] Andere Geraete im WLAN koennen LPU5 evtl. nicht erreichen.
+        echo [WARN] Einmalig: Rechtsklick auf start_lpu5.bat - "Als Administrator ausfuehren".
+    ) else (
+        echo [OK] Windows-Firewall: Ports 8101, 8088, 8080, 8089 TCP und 4242, 6969 UDP freigegeben
+    )
+) else (
+    echo [OK] Windows-Firewall-Regeln fuer LPU5 vorhanden
 )
 
 REM ── Start server ─────────────────────────────────────────────────────────

@@ -7,10 +7,14 @@ import * as geo from './geo.js';
 import * as overlays from './overlays.js';
 import * as mesh from './mesh.js';
 import * as camera from './camera.js';
+import * as ops from './ops.js';
+import * as lockMod from './lock.js';
+import * as geofence from './geofence.js';
+import * as network from './network.js';
 import { BASEMAPS, countTiles, downloadArea, importMBTiles, clearTiles, tileStats } from './tiles.js';
 import { AFFILIATIONS, FUNCTIONS, buildSidc, sidcFor, symbolPreview, escapeHtml } from './symbols.js';
 import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } from './geoutil.js';
-import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout } from './main.js';
+import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout, forcePasswordChange, applyDisplaySettings, connectTo, loginErrorText } from './main.js';
 
 const $ = (id) => document.getElementById(id);
 let current = null;
@@ -20,7 +24,8 @@ const chatChannel = 'all';
 export function open(name) {
   if (current === name) { close(); return; }
   current = name;
-  document.querySelectorAll('#toolbar button').forEach((b) => b.classList.toggle('active', b.dataset.action === name || (b.dataset.action === 'locate' && app.follow)));
+  if (OPS[name]) { markActive(name); OPS[name](); return; }
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => b.classList.toggle('active', b.dataset.action === name || (b.dataset.action === 'locate' && app.follow)));
   const fn = PANELS[name];
   if (fn) fn();
 }
@@ -28,20 +33,34 @@ export function open(name) {
 export function close() {
   current = null;
   $('sheet').classList.add('hidden');
-  document.querySelectorAll('#toolbar button').forEach((b) => {
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => {
     if (!['locate', 'north', 'measure'].includes(b.dataset.action)) b.classList.remove('active');
   });
   if (videoTimer) { clearInterval(videoTimer); videoTimer = null; }
+  if (qrScan) { qrScan.stop(); qrScan = null; }
   const img = document.querySelector('#sheet-body img.video-frame');
   if (img) img.src = ''; // stop MJPEG download
 }
 
-function sheet(title, html) {
+export function sheet(title, html) {
   $('sheet-title').textContent = title;
   $('sheet-body').innerHTML = html;
   $('sheet').classList.remove('hidden');
   return $('sheet-body');
 }
+
+const OPS = {
+  sos: () => ops.sosPanel(),
+  report: () => ops.reportPanel(),
+  draw: () => ops.drawPanel(),
+  packages: () => ops.packagesPanel(),
+};
+
+function markActive(name) {
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => b.classList.toggle('active', b.dataset.action === name));
+}
+
+export function isOpen(name) { return current === name; }
 
 const PANELS = {
   layers: layersPanel,
@@ -51,6 +70,7 @@ const PANELS = {
   video: videoPanel,
   mesh: meshPanel,
   settings: settingsPanel,
+  network: networkPanel,
 };
 
 // ---- Add / edit marker --------------------------------------------------------
@@ -144,9 +164,10 @@ async function layersPanel() {
       ${o.source === 'local' ? `<button class="btn small" data-zoom="${escapeHtml(o.id)}">⌖</button><button class="btn small" data-rm="${escapeHtml(o.id)}">✕</button>` : ''}</li>`).join('') : '<li class="muted">Keine Overlays</li>'}</ul>
     <label class="check"><input type="checkbox" id="ly-drawings" ${store.setting('showDrawings', true) ? 'checked' : ''}> Zeichnungen vom Server</label>
     <label class="check"><input type="checkbox" id="ly-track" ${store.setting('showTrack', true) ? 'checked' : ''}> Eigene Spur anzeigen</label>
+    <label class="check"><input type="checkbox" id="ly-geo" ${store.setting('showGeofences', true) ? 'checked' : ''}> Geofences (${geofence.list().length})</label>
     <div class="row"><button class="btn primary grow" id="ly-import">Datei importieren (KML/KMZ/GPX/GeoJSON/MBTiles)</button></div>
   `);
-  body.querySelectorAll('input[name=bm]').forEach((r) => { r.onchange = () => setBasemap(r.value); });
+  body.querySelectorAll('input[name=bm]').forEach((r) => { r.onchange = () => { store.saveSetting('basemapChosen', true); setBasemap(r.value); }; });
   body.querySelectorAll('[data-ov]').forEach((c) => { c.onchange = async () => { await overlays.setVisible(c.dataset.ov, c.checked); renderOverlays(); }; });
   body.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { await overlays.removeLocal(b.dataset.rm); renderOverlays(); layersPanel(); }; });
   body.querySelectorAll('[data-zoom]').forEach((b) => {
@@ -166,6 +187,7 @@ async function layersPanel() {
   });
   body.querySelector('#ly-drawings').onchange = async (e) => { await store.saveSetting('showDrawings', e.target.checked); renderOverlays(); };
   body.querySelector('#ly-track').onchange = async (e) => { await store.saveSetting('showTrack', e.target.checked); renderTrack(); };
+  body.querySelector('#ly-geo').onchange = (e) => geofence.setVisible(e.target.checked);
   body.querySelector('#ly-import').onclick = () => pickFile(handleImport);
 }
 
@@ -513,7 +535,7 @@ async function videoPanel() {
   const show = () => {
     const s = streams.find((x) => x.id === sel.value);
     const img = body.querySelector('#vid-img');
-    img.src = sync.videoUrl(`/api/video/streams/${encodeURIComponent(s.id)}/mjpeg`);
+    sync.mediaUrl(`/api/video/streams/${encodeURIComponent(s.id)}/mjpeg`).then((u) => { img.src = u; }).catch(() => img.onerror());
     img.onerror = () => { body.querySelector('#vid-info').textContent = sync.state.link === 'offline' ? 'Offline – kein Video' : 'Stream nicht verfügbar'; };
     body.querySelector('#vid-info').textContent = `${s.source_type || ''} · ${s.analytics ? `KI: ${s.model || 'YOLO'} (${(s.classes || []).join(', ') || 'alle Klassen'})` : 'ohne Analyse'}`;
   };
@@ -533,6 +555,15 @@ function settingsPanel() {
     <div class="row">${u ? '<button class="btn" id="st-logout">Abmelden</button>' : '<button class="btn primary" id="st-login">Anmelden</button>'}
       <button class="btn" id="st-sync" ${u ? '' : 'disabled'}>Jetzt synchronisieren</button></div>
     <div class="muted">Letzte Synchronisierung: ${sync.state.lastSync ? new Date(sync.state.lastSync).toLocaleString() : '–'} · Ausstehend: ${sync.state.outbox}</div>
+    ${sync.isAdmin() ? `<div class="row"><a class="btn grow" id="st-hq" href="${escapeHtml(sync.hqUrl())}" target="_blank" rel="noopener">⇦ Hauptansicht (HQ) öffnen</a></div>` : ''}
+    <h3>Sicherheit</h3>
+    <div class="row">
+      <button class="btn" id="st-pw" ${u ? '' : 'disabled'}>Passwort ändern</button>
+      <button class="btn" id="st-pin">PIN festlegen</button>
+      <button class="btn" id="st-pin-off">PIN entfernen</button>
+    </div>
+    <label>Sperren nach Hintergrund (Minuten, 0 = sofort)<input type="number" id="st-lock" min="0" max="240" value="${s('lockAfterMinutes', 5)}"></label>
+    <div class="muted">Nach 10 falschen PIN-Eingaben werden alle Daten auf diesem Gerät gelöscht. Administratoren können ein verlorenes Gerät aus der Ferne löschen.</div>
     <h3>Standort (PLI)</h3>
     <label>Sendeintervall (Sekunden)<input type="number" id="st-pli" min="2" max="600" value="${s('pliInterval', 10)}"></label>
     <label>Mindestbewegung GPS (Meter, nach Neustart)<input type="number" id="st-dist" min="0" max="500" value="${s('distanceFilter', 5)}"></label>
@@ -542,6 +573,10 @@ function settingsPanel() {
     <label>Koordinatenformat<select id="st-fmt">
       ${[['mgrs', 'MGRS / UTMREF'], ['dd', 'Dezimalgrad'], ['dms', 'Grad Min Sek']].map(([v, l]) => `<option value="${v}" ${s('coordFormat', 'mgrs') === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select></label>
+    <label>Darstellung<select id="st-mode">
+      ${[['normal', 'Normal (dunkel)'], ['night', 'Nacht (Rotlicht, gedimmt)']].map(([v, l]) => `<option value="${v}" ${s('displayMode', 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select></label>
+    <label class="check"><input type="checkbox" id="st-large" ${s('largeUi', false) ? 'checked' : ''}> Große Bedienelemente (Handschuhe)</label>
     <label class="check"><input type="checkbox" id="st-cross" ${s('crosshair', true) ? 'checked' : ''}> Fadenkreuz in Kartenmitte</label>
     <label class="check"><input type="checkbox" id="st-awake" ${s('keepAwake', true) ? 'checked' : ''}> Bildschirm anlassen</label>
     <h3>Eigener Kartenserver (XYZ)</h3>
@@ -552,11 +587,32 @@ function settingsPanel() {
   `);
   const bindNum = (id, key) => { body.querySelector(id).onchange = (e) => store.saveSetting(key, Math.max(+e.target.min, +e.target.value || 0)); };
   bindNum('#st-pli', 'pliInterval');
+  bindNum('#st-lock', 'lockAfterMinutes');
+  const pwBtn = body.querySelector('#st-pw');
+  if (pwBtn) pwBtn.onclick = () => { close(); forcePasswordChange(); };
+  lockMod.hasPin().then((has) => {
+    const off = body.querySelector('#st-pin-off');
+    if (off) off.disabled = !has;
+    const on = body.querySelector('#st-pin');
+    if (on) on.textContent = has ? 'PIN ändern' : 'PIN festlegen';
+  });
+  body.querySelector('#st-pin').onclick = async () => {
+    const pin = prompt('Neue PIN (4–8 Ziffern):');
+    if (pin === null) return;
+    if (pin !== prompt('PIN wiederholen:')) { toast('PINs stimmen nicht überein'); return; }
+    try { await lockMod.setPin(pin); toast('PIN gesetzt'); settingsPanel(); } catch (e) { toast(e.message, 5000); }
+  };
+  body.querySelector('#st-pin-off').onclick = async () => {
+    if (!confirm('PIN-Sperre entfernen?')) return;
+    await lockMod.removePin(); toast('PIN entfernt'); settingsPanel();
+  };
   bindNum('#st-dist', 'distanceFilter');
   body.querySelector('#st-track').onchange = (e) => store.saveSetting('recordTrack', e.target.checked);
   body.querySelector('#st-cleartrack').onclick = async () => { if (confirm('Aufgezeichnete Spur löschen?')) { await clearTrack(); toast('Spur gelöscht'); } };
   body.querySelector('#st-fmt').onchange = async (e) => { await store.saveSetting('coordFormat', e.target.value); centerReadout(); };
   body.querySelector('#st-cross').onchange = (e) => { store.saveSetting('crosshair', e.target.checked); $('crosshair').classList.toggle('hidden', !e.target.checked); };
+  body.querySelector('#st-mode').onchange = async (e) => { await store.saveSetting('displayMode', e.target.value); applyDisplaySettings(); };
+  body.querySelector('#st-large').onchange = async (e) => { await store.saveSetting('largeUi', e.target.checked); applyDisplaySettings(); };
   body.querySelector('#st-awake').onchange = (e) => store.saveSetting('keepAwake', e.target.checked);
   body.querySelector('#st-tiles-save').onclick = async () => {
     const url = body.querySelector('#st-tiles').value.trim();
@@ -578,4 +634,178 @@ function settingsPanel() {
   };
   const li = body.querySelector('#st-login');
   if (li) li.onclick = () => { close(); showLogin(); };
+}
+
+// ---- Server network (saved servers, QR onboarding, registration) -------------------------
+
+let qrScan = null;
+let netPrefill = {};
+
+async function networkPanel(msg = null) {
+  current = 'network';
+  const servers = await network.list();
+  const active = sync.isLoggedIn() ? sync.state.server : '';
+  const link = sync.state.link;
+  const p = netPrefill;
+  const body = sheet('Server-Netzwerk', `
+    ${active
+    ? `<div class="net-banner ${link}"><i class="fas fa-circle"></i> ${link === 'online' ? 'Verbunden' : link === 'degraded' ? 'Verbinde…' : 'Offline – Daten bleiben erhalten'}: <b>${escapeHtml(active)}</b> · ${escapeHtml(sync.state.user?.username || '')}</div>`
+    : '<div class="net-banner offline"><i class="fas fa-circle"></i> Nicht angemeldet</div>'}
+    <div id="net-msg" class="${msg?.type === 'error' ? 'error' : 'notice'} ${msg ? '' : 'hidden'}">${msg ? escapeHtml(msg.text) : ''}</div>
+    <div class="row">
+      <button class="btn primary grow" id="net-scan"><i class="fas fa-camera"></i> QR-Code scannen</button>
+      <button class="btn grow" id="net-img"><i class="fas fa-image"></i> QR aus Bild</button>
+      <input type="file" id="net-img-file" accept="image/*" class="hidden">
+    </div>
+    <div id="net-cam" class="hidden"><video id="net-video" class="preview" muted playsinline></video>
+      <div class="row"><span class="muted grow">QR-Code der LPU5-Hauptansicht ins Bild halten</span><button class="btn" id="net-cam-stop">Abbrechen</button></div></div>
+    <h3>Gespeicherte Server</h3>
+    ${servers.length ? `<ul class="list">${servers.map((s) => `
+      <li data-id="${escapeHtml(s.id)}">
+        <i class="fas fa-server" style="color:${s.url === active ? 'var(--accent)' : 'var(--muted)'}"></i>
+        <div class="grow"><div>${escapeHtml(s.name)}${s.url === active ? ' <span class="muted">(aktiv)</span>' : ''}</div>
+          <div class="sub">${escapeHtml(s.url)}${s.user ? ' · ' + escapeHtml(s.user) : ''}</div><div class="sub net-test"></div></div>
+        <button class="btn small" data-net="use" title="Verbinden">${s.url === active ? '<i class="fas fa-rotate"></i>' : '<i class="fas fa-plug"></i>'}</button>
+        <button class="btn small" data-net="test" title="Erreichbarkeit testen"><i class="fas fa-satellite-dish"></i></button>
+        <button class="btn small danger" data-net="del" title="Entfernen"><i class="fas fa-times"></i></button>
+      </li>`).join('')}</ul>` : '<div class="muted">Noch keine Server – QR-Code scannen oder unten eintragen.</div>'}
+    <h3>Anmelden</h3>
+    <label>Server<input id="net-url" inputmode="url" autocapitalize="off" placeholder="https://192.168.8.10:8101" value="${escapeHtml(p.url || '')}"></label>
+    <label>Benutzer<input id="net-user" autocapitalize="off" autocomplete="username" value="${escapeHtml(p.user || '')}"></label>
+    <label>Passwort<input id="net-pass" type="password" autocomplete="current-password"></label>
+    <div class="row"><button class="btn primary grow" id="net-login"><i class="fas fa-plug"></i> Verbinden</button>
+      <button class="btn" id="net-save">Nur speichern</button></div>
+    <h3>Neu registrieren</h3>
+    <div class="muted">Noch kein Konto? Registrierung an den oben eingetragenen Server senden – ein Admin gibt sie in der LPU5-Verwaltung frei.${p.qrToken ? ' <b>Einladungs-QR erkannt.</b>' : ''}</div>
+    <div class="row"><button class="btn grow" id="net-reg-open"><i class="fas fa-user-plus"></i> Registrieren…</button></div>
+    <form id="net-reg" class="hidden">
+      <label>Benutzername<input id="reg-user" autocapitalize="off" autocomplete="username" required></label>
+      <label>Rufname (Callsign)<input id="reg-call" autocapitalize="characters"></label>
+      <label>Einheit<input id="reg-unit" list="reg-units" autocomplete="off"><datalist id="reg-units"></datalist></label>
+      <label>Passwort (mind. 8 Zeichen)<input id="reg-pass" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Passwort wiederholen<input id="reg-pass2" type="password" autocomplete="new-password" minlength="8" required></label>
+      <div class="row"><button class="btn primary grow" type="submit">Registrierung senden</button></div>
+    </form>
+    ${!active ? '<div class="row"><button class="btn grow" id="net-back">Zurück zur Anmeldung</button></div>' : ''}
+  `);
+
+  const showMsg = (text, type = 'ok') => {
+    const el = body.querySelector('#net-msg');
+    el.className = type === 'error' ? 'error' : 'notice';
+    el.textContent = text;
+    el.scrollIntoView({ block: 'nearest' });
+  };
+  const url = () => body.querySelector('#net-url').value.trim();
+
+  const applyQr = async (text) => {
+    try {
+      const r = network.parseServerQr(text);
+      netPrefill = { url: r.url, user: r.user, qrToken: r.qrToken };
+      await network.remember({ url: r.url, name: r.name, user: r.user, team: r.team });
+      const hint = r.kind === 'invite' || r.kind === 'register'
+        ? 'Einladung erkannt – mit vorhandenem Konto anmelden oder unten registrieren.'
+        : 'Server übernommen – Benutzer und Passwort eingeben.';
+      networkPanel({ text: `${r.name}: ${hint}` });
+    } catch (e) {
+      networkPanel({ text: e.message, type: 'error' });
+    }
+  };
+
+  body.querySelector('#net-scan').onclick = async () => {
+    body.querySelector('#net-cam').classList.remove('hidden');
+    qrScan = network.scanCamera(body.querySelector('#net-video'));
+    try {
+      const text = await qrScan.result;
+      qrScan = null;
+      applyQr(text);
+    } catch (e) {
+      qrScan = null;
+      if (e.message !== 'abgebrochen') showMsg(`Kamera: ${e.message}`, 'error');
+      body.querySelector('#net-cam')?.classList.add('hidden');
+    }
+  };
+  body.querySelector('#net-cam-stop').onclick = () => { if (qrScan) qrScan.stop(); };
+  body.querySelector('#net-img').onclick = () => body.querySelector('#net-img-file').click();
+  body.querySelector('#net-img-file').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { applyQr(await network.decodeImage(f)); } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  body.querySelectorAll('[data-net]').forEach((b) => {
+    b.onclick = async () => {
+      const li = b.closest('li');
+      const s = servers.find((x) => x.id === li.dataset.id);
+      if (b.dataset.net === 'del') {
+        await network.remove(s.id);
+        networkPanel();
+      } else if (b.dataset.net === 'test') {
+        const out = li.querySelector('.net-test');
+        out.textContent = 'teste…';
+        try { out.textContent = `erreichbar (${await network.test(s.url)} ms)`; out.style.color = 'var(--accent)'; } catch (e) { out.textContent = `nicht erreichbar (${e.message || e.name})`; out.style.color = 'var(--danger)'; }
+      } else if (s.url === active) {
+        await sync.reconnect();
+        networkPanel({ text: `Status: ${sync.state.link}` });
+      } else {
+        netPrefill = { url: s.url, user: s.user };
+        await networkPanel({ text: `Passwort für ${s.name} eingeben und „Verbinden“ tippen.` });
+        $('net-pass')?.focus();
+      }
+    };
+  });
+
+  body.querySelector('#net-save').onclick = async () => {
+    if (!url()) { showMsg('Serveradresse fehlt', 'error'); return; }
+    netPrefill = { url: network.normaliseUrl(url()), user: body.querySelector('#net-user').value.trim() };
+    await network.remember(netPrefill);
+    networkPanel({ text: 'Server gespeichert' });
+  };
+
+  body.querySelector('#net-login').onclick = async () => {
+    const user = body.querySelector('#net-user').value.trim();
+    const pass = body.querySelector('#net-pass').value;
+    if (!url() || !user || !pass) { showMsg('Server, Benutzer und Passwort eingeben', 'error'); return; }
+    if (sync.isLoggedIn() && sync.state.server !== network.normaliseUrl(url()) && sync.state.outbox
+      && !confirm(`${sync.state.outbox} Meldungen an ${sync.state.server} sind noch nicht gesendet und gehen beim Wechsel verloren. Trotzdem wechseln?`)) return;
+    const btn = body.querySelector('#net-login');
+    btn.disabled = true;
+    showMsg('Verbinde…');
+    try {
+      await connectTo(url(), user, pass);
+      netPrefill = {};
+      toast(`Verbunden mit ${sync.state.server}`);
+      close();
+    } catch (e) {
+      btn.disabled = false;
+      showMsg(e.status === 401 ? 'Benutzername oder Passwort falsch – oder das Konto ist noch nicht freigegeben.' : loginErrorText(e), 'error');
+    }
+  };
+
+  body.querySelector('#net-reg-open').onclick = async () => {
+    if (!url()) { showMsg('Zuerst die Serveradresse eintragen oder QR-Code scannen', 'error'); return; }
+    const form = body.querySelector('#net-reg');
+    form.classList.remove('hidden');
+    body.querySelector('#reg-user').value = body.querySelector('#net-user').value.trim();
+    form.scrollIntoView({ block: 'start' });
+    const list = await network.units(url());
+    body.querySelector('#reg-units').innerHTML = list.map((u) => `<option value="${escapeHtml(u)}">`).join('');
+  };
+  body.querySelector('#net-reg').onsubmit = async (e) => {
+    e.preventDefault();
+    const v = (id) => body.querySelector(id).value.trim();
+    const pass = body.querySelector('#reg-pass').value;
+    if (pass !== body.querySelector('#reg-pass2').value) { showMsg('Passwörter stimmen nicht überein', 'error'); return; }
+    const weak = network.usernameProblem(v('#reg-user')) || network.passwordProblem(pass, v('#reg-user'));
+    if (weak) { showMsg(weak, 'error'); return; }
+    try {
+      await network.register(url(), { username: v('#reg-user'), password: pass, callsign: v('#reg-call'), unit: v('#reg-unit'), qrToken: netPrefill.qrToken });
+      netPrefill = { url: network.normaliseUrl(url()), user: v('#reg-user') };
+      networkPanel({ text: 'Registrierung gesendet. Sobald ein Admin sie freigegeben hat, hier mit Benutzer und Passwort verbinden.' });
+    } catch (err) {
+      showMsg(err.status ? `Registrierung abgelehnt: ${err.message}` : loginErrorText(err), 'error');
+    }
+  };
+
+  const back = body.querySelector('#net-back');
+  if (back) back.onclick = () => { close(); showLogin(); };
 }
