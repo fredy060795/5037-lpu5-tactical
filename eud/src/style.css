@@ -100,13 +100,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /* Compass (top left) */
-#tsb-compass { position: fixed; top: calc(var(--bar-h) + var(--safe-top) + 8px); left: calc(10px + env(safe-area-inset-left, 0px)); z-index: 940;
-  width: 74px; height: 74px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.55);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0; cursor: pointer; }
-#tsb-compass svg { width: 46px; height: 46px; }
+#tsb-compass { position: fixed; top: calc(var(--bar-h) + var(--safe-top) + 6px); left: calc(10px + env(safe-area-inset-left, 0px)); z-index: 940;
+  width: 80px; height: 80px; background: transparent; border: none; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+#tsb-compass svg { width: 52px; height: 52px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 #compass-needle-group { transition: transform .3s; }
-#tsb-compass-bearing { font: 700 12px/1 "Courier New", monospace; color: #fff; }
-#tsb-compass.active { border-color: #2ecc71; box-shadow: 0 0 8px rgba(46,204,113,0.6); }
+#tsb-compass-bearing { font: 700 13px/1 "Courier New", monospace; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+#tsb-compass.active svg { filter: drop-shadow(0 0 6px rgba(46,204,113,0.9)); }
 
 /* Quick buttons (bottom right) */
 #map-quick { position: fixed; right: calc(10px + env(safe-area-inset-right, 0px)); bottom: calc(44px + var(--safe-bottom)); z-index: 940;
@@ -253,7 +253,7 @@ body.night { --bg: #000; --panel: rgba(12, 0, 0, 0.95); --panel-solid: #0c0000; 
   --accent: #ff3b2b; --warn: #ff6a3a; --friend: #ff7a6a; }
 body.night #map .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(0.45) sepia(1) hue-rotate(-50deg) saturate(6) contrast(1.1); }
 body.night .mil-icon svg, body.night .dot-icon, body.night .self-icon { filter: sepia(1) hue-rotate(-50deg) saturate(5) brightness(0.8); }
-body.night #top-status-bar, body.night #coords span, body.night #tsb-compass, body.night #sidebar-panel, body.night .sidebar-tile { background: #050000; color: #ff5a4a; }
+body.night #top-status-bar, body.night #coords span, body.night #sidebar-panel, body.night .sidebar-tile { background: #050000; color: #ff5a4a; }
 body.night .tsb-btn, body.night .tsb-zoom-btn { background: #1a0303; border-color: #3a0b0b; color: #ff5a4a; }
 body.night #sb-callsign, body.night .sidebar-header, body.night .sidebar-tile i, body.night #tsb-clock, body.night #tsb-compass-bearing { color: #ff5a4a; }
 body.night #sidebar-panel { border-left-color: #ff3b2b; }
