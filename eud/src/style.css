@@ -86,17 +86,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .badge { position: absolute; top: -4px; right: -4px; background: var(--danger); color: #fff; border-radius: 9px; font: 10px/1.3 system-ui, sans-serif; padding: 1px 5px; }
 
 .tsb-break { display: none; }
-/* Portrait phone: two rows (status / buttons) so every button stays reachable */
+/* Portrait phone: two rows – status on top, zoom and all action buttons together below.
+   Buttons share the width, so the second row never wraps (also on narrow 320–360 px phones). */
 @media (orientation: portrait) and (max-width: 640px) {
   :root { --bar-h: 104px; }
-  body.large-ui { --bar-h: 128px; }
-  #top-status-bar { flex-wrap: wrap; row-gap: 6px; align-content: center; overflow: hidden; padding-top: calc(var(--safe-top) + 4px); }
-  #top-status-bar .tsb-btn { width: 40px; height: 40px; }
-  #top-status-bar .tsb-zoom-btn { width: 36px; height: 40px; }
-  body.large-ui #top-status-bar .tsb-btn, body.large-ui #top-status-bar .tsb-zoom-btn { width: 48px; height: 52px; }
+  html body.large-ui { --bar-h: 120px; }
+  #top-status-bar { flex-wrap: wrap; row-gap: 6px; column-gap: 6px; align-content: center; overflow: hidden; padding-top: calc(var(--safe-top) + 4px); }
   .tsb-break ~ .tsb-sep, .tsb-sep:has(+ .tsb-break) { display: none; }
   .tsb-break { display: block; flex-basis: 100%; height: 0; }
-  .tsb-actions { margin-left: auto; }
+  #tsb-zoom-control { flex: 2 1 0; min-width: 0; gap: 6px; }
+  .tsb-actions { flex: 6 1 0; min-width: 0; gap: 6px; }
+  #top-status-bar .tsb-btn, #top-status-bar .tsb-zoom-btn { flex: 1 1 0; min-width: 0; width: auto; max-width: 52px; height: 42px; }
+  html body.large-ui #top-status-bar .tsb-btn, html body.large-ui #top-status-bar .tsb-zoom-btn { height: 54px; max-width: 64px; }
 }
 
 /* Compass (top left) */
