@@ -1,6 +1,14 @@
 // End-to-end test against a running LPU5 server (see README):
 //   EUD_URL=http://127.0.0.1:8101/eud/ LPU5_SERVER=http://127.0.0.1:8101 node test/e2e.mjs
 import { chromium } from 'playwright';
+// Top-bar buttons are clicked directly, everything else through the ☰ command menu.
+const act = async (pg, a) => {
+  const top = pg.locator(`#top-status-bar [data-action=${a}], #map-quick [data-action=${a}]`);
+  if (await top.count()) return top.first().click();
+  await pg.click('#top-status-bar [data-action=menu]');
+  await pg.click(`#sidebar-tile-grid [data-action=${a}]`);
+};
+
 const EUD = process.env.EUD_URL || 'http://127.0.0.1:4173/';
 const SERVER = process.env.LPU5_SERVER || 'http://127.0.0.1:8101';
 const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
@@ -9,7 +17,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); else console.log('C>', m.text()); });
-const sb = async () => (await page.locator('#statusbar').innerText()).replace(/\n/g, ' | ');
+const sb = async () => (await page.locator('#top-status-bar').innerText()).replace(/\n/g, ' | ');
 await page.goto(EUD);
 await page.fill('#login-server', SERVER);
 await page.fill('#login-user', process.env.LPU5_USER || 'administrator');
@@ -20,7 +28,7 @@ console.log('after login:', await sb());
 await page.waitForTimeout(1500);
 console.log('self coord:', await page.locator('#coord-self').innerText());
 // add marker online
-await page.click('[data-action=add]');
+await act(page, 'add');
 await page.click('[data-aff=hostile]');
 await page.click('[data-fn=armor]');
 await page.fill('#mk-name', 'Feind Panzer A');
@@ -32,7 +40,7 @@ console.log('rendered mil icons:', await page.locator('.mil-icon').count());
 // go offline
 await ctx.setOffline(true);
 await page.waitForTimeout(500);
-await page.click('[data-action=add]');
+await act(page, 'add');
 await page.fill('#mk-name', 'Offline Marker B');
 await page.click('#mk-save');
 await page.waitForTimeout(1000);
@@ -55,12 +63,12 @@ const sym = await (await fetch(`${SERVER}/api/map/symbols`)).json();
 console.log('gps symbols:', JSON.stringify(sym).match(/gps_position/g)?.length);
 // panels
 for (const p of ['layers', 'offline', 'contacts', 'chat', 'mesh', 'video', 'settings']) {
-  await page.click(`[data-action=${p}]`); await page.waitForTimeout(700);
+  await act(page, p); await page.waitForTimeout(700);
   console.log(p, '=>', (await page.locator('#sheet-title').innerText()), (await page.locator('#sheet-body').innerText()).slice(0, 80).replace(/\n/g, ' / '));
   await page.click('#sheet-close');
 }
 // camera share -> server video analytics relay stream
-await page.click('[data-action=video]');
+await act(page, 'video');
 await page.waitForSelector('#cam-toggle:not([disabled])');
 await page.click('#cam-toggle');
 await page.waitForTimeout(4000);
@@ -71,11 +79,11 @@ console.log('video streams:', vs.streams.map((s) => `${s.id}:${s.status}:${s.fps
 const snap = await fetch(`${SERVER}/api/video/streams/relay-eud-administrator/snapshot.jpg?token=${token}`);
 console.log('snapshot:', snap.status, snap.headers.get('content-type'), (await snap.arrayBuffer()).byteLength, 'bytes');
 await page.click('#sheet-close');
-await page.click('[data-action=mesh]');
+await act(page, 'mesh');
 await page.waitForTimeout(300);
 console.log('mesh =>', (await page.locator('#sheet-body').innerText()).slice(0, 160).replace(/\n/g, ' / '));
 await page.click('#sheet-close');
-await page.click('[data-action=chat]');
+await act(page, 'chat');
 await page.waitForTimeout(500);
 await page.click('[data-tab=funk]');
 await page.waitForTimeout(1000);

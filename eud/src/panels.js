@@ -24,7 +24,7 @@ export function open(name) {
   if (current === name) { close(); return; }
   current = name;
   if (OPS[name]) { markActive(name); OPS[name](); return; }
-  document.querySelectorAll('#toolbar button').forEach((b) => b.classList.toggle('active', b.dataset.action === name || (b.dataset.action === 'locate' && app.follow)));
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => b.classList.toggle('active', b.dataset.action === name || (b.dataset.action === 'locate' && app.follow)));
   const fn = PANELS[name];
   if (fn) fn();
 }
@@ -32,7 +32,7 @@ export function open(name) {
 export function close() {
   current = null;
   $('sheet').classList.add('hidden');
-  document.querySelectorAll('#toolbar button').forEach((b) => {
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => {
     if (!['locate', 'north', 'measure'].includes(b.dataset.action)) b.classList.remove('active');
   });
   if (videoTimer) { clearInterval(videoTimer); videoTimer = null; }
@@ -55,7 +55,7 @@ const OPS = {
 };
 
 function markActive(name) {
-  document.querySelectorAll('#toolbar button').forEach((b) => b.classList.toggle('active', b.dataset.action === name));
+  document.querySelectorAll('[data-action]:not(#sheet [data-action])').forEach((b) => b.classList.toggle('active', b.dataset.action === name));
 }
 
 export function isOpen(name) { return current === name; }

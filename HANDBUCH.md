@@ -48,6 +48,15 @@ Offline-Modus nur für vertrauenswürdige HTTPS-Seiten frei.
 App (Android-APK / iOS) aus GitHub Actions oder PWA unter `https://<IP>:8101/eud/`.
 Details: [eud/README.md](eud/README.md).
 
+**Bedienung** wie in der Feldansicht, ausgelegt für quer gehaltene Handys:
+- Kopfleiste: Uhr, Akku, Verbindung, GPS, Rufname, Zoom −/+, SOS, Marker, Chat, Video, Sync, ☰.
+- Kompass oben links: Antippen schaltet den Kompass ein oder aus.
+- Rechts unten: Messen und eigener Standort/Folgen.
+- ☰ öffnet das COMMAND MENU mit allen weiteren Funktionen als Kacheln. Admins/Operatoren
+  finden dort „Hauptansicht“.
+- Fenster öffnen sich im Querformat als Seitenleiste rechts, die Karte bleibt links bedienbar.
+- Im Hochformat wird die Kopfleiste zweizeilig.
+
 - **Offline:** Karte, eigene Position, Lagebild, Overlays, Chatverlauf bleiben bei
   Verbindungsabbruch; Meldungen/Marker werden gepuffert und später gesendet.
 - **Karten:** über den LPU5-Kachelserver (auch ohne Internet), Gebiete vorab laden, MBTiles.

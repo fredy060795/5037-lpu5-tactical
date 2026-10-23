@@ -3,6 +3,7 @@
 // cached data from IndexedDB first and render them, then try the server.
 
 import 'leaflet/dist/leaflet.css';
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import './style.css';
 import L from 'leaflet';
 import { Capacitor } from '@capacitor/core';
@@ -293,7 +294,7 @@ export async function clearTrack() {
 
 export function setFollow(on) {
   app.follow = on;
-  document.querySelector('[data-action=locate]').classList.toggle('active', on);
+  document.querySelectorAll('[data-action=locate]').forEach((b) => b.classList.toggle('active', on));
   if (on) {
     const fix = geo.getLastFix();
     if (fix) app.map.setView([fix.lat, fix.lng], Math.max(app.map.getZoom(), 15));
@@ -336,7 +337,7 @@ function updateNav() {
 function startMeasure() {
   app.measure = { pts: [], line: L.polyline([], { color: '#ff3b3b', weight: 3 }).addTo(app.map), dots: L.layerGroup().addTo(app.map) };
   $('measure-bar').classList.remove('hidden');
-  document.querySelector('[data-action=measure]').classList.add('active');
+  document.querySelectorAll('[data-action=measure]').forEach((b) => b.classList.add('active'));
   updateMeasure();
 }
 
@@ -346,7 +347,7 @@ function stopMeasure() {
   app.map.removeLayer(app.measure.dots);
   app.measure = null;
   $('measure-bar').classList.add('hidden');
-  document.querySelector('[data-action=measure]').classList.remove('active');
+  document.querySelectorAll('[data-action=measure]').forEach((b) => b.classList.remove('active'));
 }
 
 function measureAdd(ll) {
@@ -368,19 +369,36 @@ function updateMeasure() {
 // ---- UI wiring ---------------------------------------------------------------------------
 
 function bindUi() {
-  $('toolbar').addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
+  // Every control outside the sheet carries data-action (top bar, compass, quick buttons, menu tiles).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn || btn.closest('#sheet')) return;
     const action = btn.dataset.action;
+    const fromMenu = Boolean(btn.closest('#status-menu'));
+    if (fromMenu || action === 'menu-close') toggleMenu(false);
+    if (action === 'menu-close') return;
     if (action !== 'measure' && app.measure) stopMeasure();
     switch (action) {
+      case 'menu': panels.close(); toggleMenu(); break;
+      case 'zoom-in': app.map.zoomIn(); break;
+      case 'zoom-out': app.map.zoomOut(); break;
       case 'locate': setFollow(!app.follow); break;
-      case 'north': toggleCompass(btn); break;
+      case 'north': toggleCompass($('tsb-compass')); break;
       case 'add': panels.addMarker(app.map.getCenter()); break;
       case 'measure': app.measure ? stopMeasure() : startMeasure(); break;
+      case 'sync': manualSync(); break;
+      case 'night': {
+        const night = store.setting('displayMode', 'normal') === 'night';
+        store.saveSetting('displayMode', night ? 'normal' : 'night').then(applyDisplaySettings);
+        break;
+      }
+      case 'hq': location.href = sync.hqUrl(); break;
       default: panels.open(action);
     }
   });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleMenu(false); });
+  startClock();
+  startBattery();
   $('measure-undo').onclick = () => {
     if (!app.measure || !app.measure.pts.length) return;
     app.measure.pts.pop();
@@ -459,6 +477,65 @@ export function showLogin() {
   $('login').classList.remove('hidden');
 }
 
+function toggleMenu(force) {
+  const menu = $('status-menu');
+  const show = force ?? !menu.classList.contains('open');
+  menu.classList.toggle('open', show);
+  document.querySelectorAll('[data-action=menu]').forEach((b) => b.classList.toggle('active', show));
+  if (show) $('tile-hq').classList.toggle('hidden', !(sync.isLoggedIn() && sync.isAdmin()));
+}
+
+async function manualSync() {
+  if (!sync.isLoggedIn()) { toast('Nicht angemeldet – Offline-Betrieb'); return; }
+  const btns = document.querySelectorAll('[data-action=sync] i');
+  btns.forEach((i) => i.classList.add('fa-spin'));
+  try {
+    sync.reconnect();
+    await sync.flushOutbox();
+    await sync.pullAll();
+    geofence.refresh();
+    toast('Lage synchronisiert');
+  } catch (_) {
+    toast('Sync fehlgeschlagen – Daten bleiben lokal erhalten');
+  } finally {
+    btns.forEach((i) => i.classList.remove('fa-spin'));
+  }
+}
+
+function startClock() {
+  const tick = () => {
+    const d = new Date();
+    $('tsb-clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  tick();
+  setInterval(tick, 10000);
+}
+
+async function startBattery() {
+  const wrap = $('tsb-battery');
+  if (!navigator.getBattery) { wrap.classList.add('hidden'); return; }
+  try {
+    const bat = await navigator.getBattery();
+    const show = () => {
+      const pct = Math.round(bat.level * 100);
+      const lvl = pct > 87 ? 'full' : pct > 62 ? 'three-quarters' : pct > 37 ? 'half' : pct > 12 ? 'quarter' : 'empty';
+      wrap.querySelector('i').className = `fas fa-battery-${lvl}${bat.charging ? ' charging' : ''}`;
+      wrap.classList.toggle('low', pct <= 20 && !bat.charging);
+      $('tsb-battery-level').textContent = `${pct}%`;
+    };
+    show();
+    bat.addEventListener('levelchange', show);
+    bat.addEventListener('chargingchange', show);
+  } catch (_) { wrap.classList.add('hidden'); }
+}
+
+function updateCompassWidget() {
+  const h = geo.getHeading() ?? geo.getLastFix()?.course;
+  const ok = h != null && !Number.isNaN(h);
+  $('compass-needle-group').setAttribute('transform', `rotate(${ok ? -h : 0} 14 14)`);
+  $('tsb-compass-bearing').textContent = ok ? `${String(Math.round((h + 360) % 360)).padStart(3, '0')}°` : '---°';
+}
+
 async function toggleCompass(btn) {
   if (btn.classList.contains('active')) { btn.classList.remove('active'); return; }
   const ok = await geo.startCompass();
@@ -469,7 +546,7 @@ async function toggleCompass(btn) {
 function bindSync() {
   sync.on('link', (link) => {
     const el = $('sb-link');
-    el.className = `sb-item link ${link}`;
+    el.className = `link ${link}`;
     el.textContent = { online: 'ONLINE', degraded: 'VERBINDE…', offline: 'OFFLINE' }[link];
     if (link === 'online') {
       const fix = geo.getLastFix();
@@ -503,7 +580,7 @@ function bindSync() {
     await lockMod.wipeLocal('Die Einsatzzentrale hat die Löschung dieses Geräts angeordnet.');
   });
 
-  geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); geofence.check(fix); });
+  geo.onFix((fix) => { updateSelf(fix); updateCompassWidget(); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); geofence.check(fix); });
   mesh.on('data', () => renderMarkers());
   mesh.on('text', (msg) => panels.onMeshText(msg));
   mesh.on('status', (st) => {
@@ -514,6 +591,7 @@ function bindSync() {
     if (st.status === 'disconnected' && st.error) toast(`Mesh: ${st.error}`, 5000);
     panels.onMeshStatus();
   });
+  geo.onHeading(updateCompassWidget);
   geo.onHeading(() => { const f = geo.getLastFix(); if (f && app.selfMarker) app.selfMarker.setIcon(selfIcon(Date.now() - f.time > 60000, geo.getHeading())); });
 
   // Re-evaluate staleness of contacts and own fix periodically.
