@@ -463,6 +463,11 @@ async def lifespan(application):
 
     # ---- Shutdown logic ----
     _SHUTDOWN_IN_PROGRESS.set()
+    if radio_manager:
+        try:
+            radio_manager.shutdown()
+        except Exception as e:
+            logger.error("Error stopping radio transcription: %s", e)
     if video_manager:
         try:
             video_manager.shutdown()
@@ -12800,6 +12805,29 @@ async def sdr_audio_stream(
     """
     mode_lower = mode.lower()
 
+    # 0. Radio transcription owns the SDR stick: listen to the same audio
+    #    instead of opening the device a second time.
+    if radio_manager and radio_manager.sdr_active():
+        tap_q = radio_manager.tap.subscribe()
+        wav_hdr = _make_wav_header(radio_manager.tap.rate, 1, 16)
+
+        async def _tap_stream():
+            yield wav_hdr
+            loop = asyncio.get_event_loop()
+            try:
+                while True:
+                    chunk = await loop.run_in_executor(None, tap_q.get)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                radio_manager.tap.unsubscribe(tap_q)
+
+        return StreamingResponse(_tap_stream(), media_type="audio/wav", headers={
+            "Cache-Control": "no-cache",
+            "X-LPU5-Frequency": str(radio_manager.settings.get("frequency_mhz")),
+        })
+
     # 1. rtl_fm CLI tool
     _rtl_fm_exe = _find_rtl_tool("rtl_fm")
     if _rtl_fm_exe:
@@ -13960,6 +13988,18 @@ def download_ca_profile():
     }
     return Response(content=plistlib.dumps(profile), media_type="application/x-apple-aspen-config",
                     headers={"Content-Disposition": 'attachment; filename="lpu5-ca.mobileconfig"'})
+
+# Radio transcription (Whisper) – see radio_transcribe.py
+try:
+    import radio_transcribe as _radio_transcribe
+    radio_manager = _radio_transcribe.RadioTranscriber(
+        base_path, broadcast=broadcast_websocket_update, rtl_fm_finder=lambda name: _find_rtl_tool(name))
+    app.include_router(_radio_transcribe.create_router(radio_manager, verify_token))
+    logger.info("Radio transcription available (faster-whisper=%s)",
+                _radio_transcribe.RadioTranscriber.capabilities()["faster_whisper"])
+except Exception as _radio_init_err:
+    radio_manager = None
+    logger.warning("Radio transcription unavailable: %s", _radio_init_err)
 
 # EUD field client (eud/, built with `npm run build`) – installable PWA for
 # iOS/Android browsers, same code as the Android/iOS apps.

@@ -8,11 +8,14 @@ on:
       - 'eud/**'
       - 'video_analytics.py'
       - 'test_video_analytics.py'
+      - 'radio_transcribe.py'
+      - 'test_radio_transcribe.py'
       - '.github/workflows/eud-build.yml'
   pull_request:
     paths:
       - 'eud/**'
       - 'video_analytics.py'
+      - 'radio_transcribe.py'
       - '.github/workflows/eud-build.yml'
   workflow_dispatch:
 
@@ -42,7 +45,25 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install fastapi httpx pytest opencv-python-headless numpy python-multipart
-      - run: python -m pytest -q test_video_analytics.py
+      - run: pip install scipy
+      - run: python -m pytest -q test_video_analytics.py test_radio_transcribe.py
+
+  radio-whisper:
+    name: Funk-Mitschrift (Whisper, echte Spracherkennung)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y espeak-ng
+      - run: pip install fastapi httpx pytest numpy scipy faster-whisper python-multipart
+      - name: Testfunkspruch erzeugen (Sprachsynthese)
+        run: espeak-ng -v de -s 135 -w "$RUNNER_TEMP/funk.wav" "Hier Alpha eins. Kontakt Nord, drei Fahrzeuge. Kommen."
+      - name: Whisper-Mitschrift prüfen
+        env:
+          RADIO_WHISPER_TEST_WAV: ${{ runner.temp }}/funk.wav
+          RADIO_WHISPER_MODEL: base
+        run: python -m pytest -q -s test_radio_transcribe.py
 
   android:
     name: Android APK

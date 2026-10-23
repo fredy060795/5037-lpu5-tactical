@@ -339,7 +339,7 @@ async function chatPanel() {
   unread = 0;
   $('chat-badge').classList.add('hidden');
   const body = sheet('Chat', `
-    <div class="tabs"><button class="btn small" data-tab="server">Server – Alle</button><button class="btn small" data-tab="mesh">📡 Mesh (LoRa)</button></div>
+    <div class="tabs"><button class="btn small" data-tab="server">Server – Alle</button><button class="btn small" data-tab="mesh">📡 Mesh (LoRa)</button><button class="btn small" data-tab="funk">🎙 Funk</button></div>
     <div class="chat-log" id="chat-log" data-empty="1"><div class="muted">Lade…</div></div>
     <form class="row" id="chat-form"><input id="chat-text" class="grow" placeholder="Nachricht" autocomplete="off"><button class="btn primary">Senden</button></form>
   `);
@@ -349,6 +349,14 @@ async function chatPanel() {
   });
   const log = body.querySelector('#chat-log');
   let history;
+  if (chatTab === 'funk') {
+    body.querySelector('#chat-form').classList.add('hidden');
+    const entries = sync.isLoggedIn() ? await sync.radioTranscripts() : [];
+    if (!document.body.contains(log)) return;
+    log.innerHTML = entries.length ? '' : '<div class="muted">Keine Funksprüche protokolliert (Mitschrift im Funk-Bereich des Servers starten).</div>';
+    entries.forEach((e) => appendRadio(e));
+    return;
+  }
   if (chatTab === 'mesh') {
     if (!meshLog.length) meshLog.push(...((await store.get('kv', 'meshChat')) || []));
     history = meshLog;
@@ -365,7 +373,15 @@ async function chatPanel() {
     const input = body.querySelector('#chat-text');
     const text = input.value.trim();
     if (!text) return;
-    if (chatTab === 'mesh') {
+    if (chatTab === 'funk') {
+    body.querySelector('#chat-form').classList.add('hidden');
+    const entries = sync.isLoggedIn() ? await sync.radioTranscripts() : [];
+    if (!document.body.contains(log)) return;
+    log.innerHTML = entries.length ? '' : '<div class="muted">Keine Funksprüche protokolliert (Mitschrift im Funk-Bereich des Servers starten).</div>';
+    entries.forEach((e) => appendRadio(e));
+    return;
+  }
+  if (chatTab === 'mesh') {
       try {
         await mesh.sendText(text);
         input.value = '';
@@ -377,6 +393,19 @@ async function chatPanel() {
     await sync.sendChat(chatChannel, text);
     if (sync.state.link !== 'online') appendChat({ username: sync.state.user?.username, text }, true);
   };
+}
+
+function appendRadio(e) {
+  const log = document.querySelector('#chat-log');
+  if (!log) return;
+  if (log.dataset.empty) { log.innerHTML = ''; delete log.dataset.empty; }
+  log.insertAdjacentHTML('beforeend', `<div class="msg"><div class="meta">🎙 ${escapeHtml(e.source)} · ${new Date(e.started).toLocaleTimeString()}</div>${escapeHtml(e.text)}</div>`);
+  log.scrollTop = log.scrollHeight;
+}
+
+export function onRadio(e) {
+  if (current === 'chat' && chatTab === 'funk') { appendRadio(e); return; }
+  if (store.setting('radioToasts', true)) toast(`🎙 ${e.source}: ${String(e.text).slice(0, 90)}`, 5000);
 }
 
 // ---- Meshtastic --------------------------------------------------------------------------

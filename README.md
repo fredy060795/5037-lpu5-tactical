@@ -13,6 +13,7 @@ A comprehensive tactical tracking system with integrated Meshtastic support for 
 | **Android-APK / iOS-App** | Werden von GitHub Actions gebaut (`.github/workflows/eud-build.yml`) | [eud/README.md](eud/README.md#installation-auf-dem-gerät) |
 | **PWA** | Vom Server unter `https://<server>:8101/eud/` – installierbar, offline nutzbar | [eud/README.md](eud/README.md) |
 | **Videoanalyse** | YOLOv8 auf RTSP/HTTP/Datei/Handy-Kameras, Erkennungen als Alarm und Lagemarker (CoT → ATAK) | [VIDEO_ANALYTICS.md](VIDEO_ANALYTICS.md) |
+| **Funk-Mitschrift** | Whisper-Logik aus FunkLog: SDR- oder Funkgeräte-Audio wird mitgeschrieben und dauerhaft protokolliert, live im Funk-Bereich und im EUD | [RADIO_TRANSCRIPTION.md](RADIO_TRANSCRIPTION.md) |
 | **HTTPS/Zertifikat** | Eigene LPU5-Root-CA (`/lpu5-ca.crt`) – nötig, damit Kamera, Bluetooth und Offline-Modus im Browser freigegeben werden | [eud/README.md](eud/README.md#warum-kamera-und-bluetooth-bisher-nicht-gingen--https-zertifikat) |
 
 Die früheren Projekte `android/` (nicht baubar, fehlende Abhängigkeit) und `ionic/` wurden durch `eud/` ersetzt.

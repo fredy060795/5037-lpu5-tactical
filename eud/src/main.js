@@ -428,6 +428,7 @@ function bindSync() {
   });
   sync.on('auth-expired', () => { toast('Sitzung abgelaufen – bitte neu anmelden'); showLogin(); });
   sync.on('chat', (msg) => panels.onChat(msg));
+  sync.on('radio', (e) => panels.onRadio(e));
   sync.on('detection', (d) => panels.onDetection(d));
 
   geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); });

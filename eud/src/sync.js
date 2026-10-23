@@ -27,7 +27,7 @@ let pingTimer = null;
 let flushing = false;
 let lastPositionSent = 0;
 
-const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics'];
+const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics', 'radio'];
 
 export async function init() {
   const auth = (await store.get('kv', 'auth')) || {};
@@ -255,6 +255,9 @@ async function handleMessage(msg) {
     case 'new_message':
       emit('chat', d);
       break;
+    case 'radio_transcript':
+      emit('radio', d);
+      break;
     case 'detection':
     case 'video_detection':
       emit('detection', d);
@@ -420,4 +423,15 @@ export function sendWs(msg) {
   if (ws.bufferedAmount > 2_000_000) return false; // slow link: drop frames instead of queueing
   ws.send(JSON.stringify(msg));
   return true;
+}
+
+/** Radio transcripts (Whisper) from the server; cached for offline reading. */
+export async function radioTranscripts() {
+  try {
+    const r = await api('/api/radio/transcripts?limit=200', { timeout: 6000 });
+    await store.put('kv', r.entries, 'radioLog');
+    return r.entries;
+  } catch (_) {
+    return (await store.get('kv', 'radioLog')) || [];
+  }
 }
