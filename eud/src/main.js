@@ -19,6 +19,8 @@ import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } fr
 import * as panels from './panels.js';
 import * as mesh from './mesh.js';
 import * as trust from './trust.js';
+import * as ops from './ops.js';
+import * as lockMod from './lock.js';
 
 const $ = (id) => document.getElementById(id);
 const STALE_MS = 5 * 60 * 1000;
@@ -49,6 +51,8 @@ async function boot() {
   await geo.restoreLastFix();
 
   initMap();
+  await lockMod.lock();          // PIN before anything is shown
+  lockMod.installAutoLock();
   await renderAll();
   updateSelf(geo.getLastFix(), true);
   bindUi();
@@ -115,14 +119,37 @@ function initMap() {
   });
   map.on('dragstart', () => setFollow(false));
   map.on('contextmenu', (e) => panels.addMarker(e.latlng));
-  map.on('click', (e) => { if (app.measure) measureAdd(e.latlng); });
+  map.on('click', (e) => { if (app.measure && !app.drawing) measureAdd(e.latlng); });
   updateCenterReadout();
 }
 
 export async function availableBasemaps() {
   const imported = (await store.get('kv', 'mbtilesLayers')) || [];
   const custom = store.setting('customTiles', null);
-  return [...BASEMAPS, ...(custom ? [custom] : []), ...imported];
+  return [...(await serverBasemaps()), ...BASEMAPS, ...(custom ? [custom] : []), ...imported];
+}
+
+// Map tiles via the LPU5 server (tile_server.py): works in a TOC without
+// internet, and every tile is also cached on this device.
+async function serverBasemaps() {
+  if (!sync.state.server) return [];
+  let sources = (await store.get('kv', 'serverTileSources')) || null;
+  if (sync.state.link !== 'offline' || !sources) {
+    try {
+      const r = await fetch(sync.serverUrl('/api/tiles/sources'));
+      if (r.ok) {
+        sources = (await r.json()).sources;
+        await store.put('kv', sources, 'serverTileSources');
+      }
+    } catch (_) { /* keep cached list */ }
+  }
+  return (sources || [{ id: 'osm', name: 'OpenStreetMap', max_zoom: 19 }]).map((src) => ({
+    id: `srv-${src.id}`,
+    name: `LPU5-Server: ${src.name}`,
+    url: sync.serverUrl(`/tiles/${src.id}/{z}/{x}/{y}`),
+    maxNativeZoom: src.max_zoom || 19,
+    attribution: 'LPU5',
+  }));
 }
 
 export async function setBasemap(id) {
@@ -364,8 +391,12 @@ function bindUi() {
     $('login-error').textContent = '';
     $('login-submit').disabled = true;
     try {
-      await sync.login($('login-server').value, $('login-user').value, $('login-pass').value);
+      const u = await sync.login($('login-server').value, $('login-user').value, $('login-pass').value);
       await store.saveSetting('offlineMode', false);
+      if (u.mustChangePassword) {
+        await forcePasswordChange($('login-pass').value);
+      }
+      if (!store.setting('basemapChosen', false)) setBasemap('srv-osm');
       afterLogin();
       trust.offerBrowserInstall(sync.state.server).catch(() => {});
     } catch (err) {
@@ -379,6 +410,30 @@ function bindUi() {
     $('login').classList.add('hidden');
     startTracking();
   };
+}
+
+/** Forced password change (default or admin-assigned password). */
+export async function forcePasswordChange(oldPassword = '') {
+  const dlg = $('pw-dialog');
+  dlg.classList.remove('hidden');
+  $('pw-old').value = oldPassword;
+  $('pw-old').closest('label').classList.toggle('hidden', Boolean(oldPassword));
+  $('pw-error').textContent = '';
+  await new Promise((resolve) => {
+    $('pw-form').onsubmit = async (e) => {
+      e.preventDefault();
+      if ($('pw-new').value !== $('pw-new2').value) { $('pw-error').textContent = 'Passwörter stimmen nicht überein'; return; }
+      try {
+        await sync.changePassword($('pw-old').value, $('pw-new').value);
+        resolve();
+      } catch (err) {
+        $('pw-error').textContent = err.message;
+      }
+    };
+  });
+  dlg.classList.add('hidden');
+  toast('Passwort geändert');
+  sync.reconnect();
 }
 
 function loginErrorText(err) {
@@ -430,6 +485,15 @@ function bindSync() {
   sync.on('chat', (msg) => panels.onChat(msg));
   sync.on('radio', (e) => panels.onRadio(e));
   sync.on('detection', (d) => panels.onDetection(d));
+  sync.on('alert', (a) => ops.onAlert(a));
+  sync.on('report', (r) => ops.onReport(r));
+  sync.on('package', (p) => ops.onPackage(p));
+  sync.on('password-required', () => { if ($('pw-dialog').classList.contains('hidden')) forcePasswordChange(); });
+  sync.on('wipe', async () => {
+    // Remote wipe requested by an administrator (lost or captured device).
+    await sync.confirmWipe();
+    await lockMod.wipeLocal('Die Einsatzzentrale hat die Löschung dieses Geräts angeordnet.');
+  });
 
   geo.onFix((fix) => { updateSelf(fix); sync.reportPosition(fix); mesh.maybeSendPli(fix, sync.callsign()); });
   mesh.on('data', () => renderMarkers());
@@ -453,6 +517,7 @@ function bindSync() {
 let toastTimer;
 export function toast(text, ms = 3000) {
   const el = $('toast');
+  if (!el) return; // e.g. after a local wipe replaced the page
   el.textContent = text;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);

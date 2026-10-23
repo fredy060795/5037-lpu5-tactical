@@ -2,8 +2,8 @@
 // App shell is cached so the EUD starts without a link; map tiles and data
 // live in IndexedDB and are handled by the app itself.
 // The precache list and version are injected at build time (vite.config.js).
-const PRECACHE = ["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./assets/index-BuGMEVvY.js","./assets/sql-wasm-browser-Bu6DMMRk.js","./assets/sql-wasm-browser-CVpArqbN.js","./assets/web-Bllpi6bX.js","./assets/web-ChnXNtlv.js","./assets/web-DqMRur5c.js","./assets/index-UzOYw5kd.css","./assets/sql-wasm-browser-C1D_RJuy.wasm"];
-const CACHE = `lpu5-eud-${"fde188e2de"}`;
+const PRECACHE = ["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./assets/index-j2IJnxbE.js","./assets/sql-wasm-browser-BkDsvBol.js","./assets/sql-wasm-browser-Bu6DMMRk.js","./assets/web-BUWTDsml.js","./assets/web-BvUKfaF8.js","./assets/web-_mcLAmwt.js","./assets/index-Bb9fVB2a.css","./assets/sql-wasm-browser-C1D_RJuy.wasm"];
+const CACHE = `lpu5-eud-${"ddc45c0cf7"}`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));

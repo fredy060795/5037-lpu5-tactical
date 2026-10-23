@@ -35,6 +35,19 @@
     </form>
   </div>
 
+  <!-- Forced password change -->
+  <div id="pw-dialog" class="screen hidden" style="z-index:3600">
+    <form id="pw-form" class="login-box">
+      <h1 style="font-size:17px">PASSWORT ÄNDERN</h1>
+      <p class="muted">Bitte ein eigenes Passwort festlegen (mindestens 8 Zeichen).</p>
+      <label>Bisheriges Passwort<input id="pw-old" type="password" autocomplete="current-password"></label>
+      <label>Neues Passwort<input id="pw-new" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Wiederholen<input id="pw-new2" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button class="btn primary">Speichern</button>
+      <p id="pw-error" class="error"></p>
+    </form>
+  </div>
+
   <!-- Certificate confirmation -->
   <div id="trust-dialog" class="screen hidden" style="z-index:3500">
     <div class="login-box">
@@ -67,16 +80,20 @@
 
   <!-- Toolbar -->
   <nav id="toolbar">
+    <button data-action="sos" class="sos-btn" title="Notruf / Alarm">SOS</button>
     <button data-action="locate" title="Eigener Standort / Folgen">◎</button>
     <button data-action="north" title="Nord oben / Kompass">N</button>
     <button data-action="add" title="Marker setzen">＋</button>
     <button data-action="measure" title="Messen">⟷</button>
+    <button data-action="draw" title="Zeichnen: Route, Linie, Fläche, Entfernungsringe">✎</button>
+    <button data-action="report" title="Meldung: MEDEVAC, SALUTE, Lage, Spot">📝</button>
     <button data-action="layers" title="Karten &amp; Overlays">▤</button>
     <button data-action="offline" title="Offline-Karten">⬇</button>
     <button data-action="contacts" title="Kontakte">☰</button>
     <button data-action="chat" title="Chat">✉<span id="chat-badge" class="badge hidden">0</span></button>
     <button data-action="mesh" title="Meshtastic (Bluetooth)">📡<span id="mesh-dot" class="badge hidden">●</span></button>
     <button data-action="video" title="Video / Analyse / Kamera">▶</button>
+    <button data-action="packages" title="Data Packages (ATAK)">📦</button>
     <button data-action="settings" title="Einstellungen">⚙</button>
   </nav>
 

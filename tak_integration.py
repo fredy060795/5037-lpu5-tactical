@@ -609,6 +609,7 @@ class TakBridge:
         self.reports: List[Dict[str, Any]] = []
         self.video_uids: Dict[str, str] = {}
         self._seen: Dict[str, float] = {}
+        self._sent_uids: Dict[str, float] = {}
         self._seen_lock = threading.Lock()
 
     def _call(self, name, *args):
@@ -622,6 +623,12 @@ class TakBridge:
 
     def send(self, xml: Optional[str]):
         if xml:
+            root = parse_event(xml)
+            if root is not None:
+                # Remember own events: multicast/TAK-server echoes of them are ignored.
+                with self._seen_lock:
+                    self._seen[f"{root.get('uid', '')}|{root.get('time', '')}|{root.get('type', '')}"] = time.time()
+                    self._sent_uids[root.get("uid", "")] = time.time()
             self._call("send_cot", xml)
 
     # -- inbound --
@@ -643,6 +650,9 @@ class TakBridge:
             if key in self._seen:
                 return True
             self._seen[key] = now
+            echo = now - self._sent_uids.get(uid, 0) < 120 and kind in ("alert", "casevac", "file")
+        if echo:
+            return True  # our own alert/report/file share coming back
             if len(self._seen) > 5000:
                 for k in [k for k, t in self._seen.items() if now - t > 600]:
                     del self._seen[k]

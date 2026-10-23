@@ -27,7 +27,7 @@ let pingTimer = null;
 let flushing = false;
 let lastPositionSent = 0;
 
-const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics', 'radio'];
+const WS_CHANNELS = ['markers', 'symbols', 'overlays', 'drawings', 'chat', 'video_analytics', 'radio', 'alerts', 'reports', 'packages'];
 
 export async function init() {
   const auth = (await store.get('kv', 'auth')) || {};
@@ -69,6 +69,7 @@ async function api(path, { method = 'GET', body, timeout = 10000 } = {}) {
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).detail || ''; } catch (_) { /* ignore */ }
+      if (detail === 'PASSWORD_CHANGE_REQUIRED') emit('password-required');
       throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status });
     }
     return res.status === 204 ? null : res.json();
@@ -87,8 +88,22 @@ export async function login(server, username, password) {
   state.token = r.token;
   state.user = r.user;
   await store.put('kv', { server: state.server, token: state.token, user: state.user }, 'auth');
+  if (r.must_change_password) return { ...r.user, mustChangePassword: true };
   await reconnect();
   return r.user;
+}
+
+export async function changePassword(oldPassword, newPassword) {
+  await api('/api/change_password', { method: 'POST', body: { old_password: oldPassword, new_password: newPassword } });
+}
+
+export function isAdmin() {
+  return ['admin', 'operator'].includes(state.user?.role);
+}
+
+/** Main (HQ) view of the server – for admins and operators. */
+export function hqUrl() {
+  return apiUrl('/index.html');
 }
 
 export async function logout() {
@@ -121,7 +136,7 @@ export async function pullAll() {
     ...overlays.map((o) => ({ ...o, source: 'server' })),
     ...(await store.all('overlays')).filter((o) => o.source === 'local'),
   ]);
-  await store.replaceAll('drawings', drawings);
+  await store.replaceAll('drawings', [...drawings, ...(await store.all('drawings')).filter((d) => d._pending)]);
   state.lastSync = Date.now();
   await store.put('kv', state.lastSync, 'lastSync');
   cacheOverlayImages(overlays);
@@ -169,7 +184,13 @@ async function doReconnect() {
   if (!isLoggedIn()) return;
   clearTimeout(wsTimer);
   try {
-    await api('/api/me', { timeout: 6000 });
+    const me = await api('/api/me', { timeout: 6000 });
+    if (me) {
+      state.user = { ...state.user, ...me };
+      store.put('kv', { server: state.server, token: state.token, user: state.user }, 'auth').catch(() => {});
+      if (me.wipe_requested) { emit('wipe'); return; }
+      if (me.must_change_password) { emit('password-required'); return; }
+    }
     if (state.link !== 'online') setLink('degraded');
     await flushOutbox();
     await pullAll();
@@ -262,6 +283,15 @@ async function handleMessage(msg) {
     case 'video_detection':
       emit('detection', d);
       break;
+    case 'alert':
+      emit('alert', d);
+      break;
+    case 'report':
+      emit('report', d);
+      break;
+    case 'package_added':
+      emit('package', d);
+      break;
     default:
       break;
   }
@@ -276,9 +306,13 @@ export async function enqueue(op) {
   if (state.link !== 'offline') flushOutbox();
 }
 
+let flushAgain = false;
+
 export async function flushOutbox() {
-  if (flushing || !isLoggedIn()) return;
+  if (!isLoggedIn()) return;
+  if (flushing) { flushAgain = true; return; } // items queued meanwhile are sent right after
   flushing = true;
+  flushAgain = false;
   try {
     const items = await store.all('outbox');
     for (const item of items) {
@@ -299,6 +333,7 @@ export async function flushOutbox() {
     flushing = false;
     state.outbox = await store.count('outbox');
     emit('outbox', state.outbox);
+    if (flushAgain && state.outbox && state.link !== 'offline') flushOutbox();
   }
 }
 
@@ -319,6 +354,22 @@ async function sendOp(item) {
       return;
     case 'chat':
       await api('/api/chat/message', { method: 'POST', body: item.payload });
+      return;
+    case 'alert':
+      await api('/api/tak/alerts', { method: 'POST', body: item.payload });
+      return;
+    case 'report':
+      await api('/api/tak/reports', { method: 'POST', body: item.payload });
+      return;
+    case 'createDrawing': {
+      const r = await api('/api/drawings', { method: 'POST', body: item.payload });
+      await store.del('drawings', item.localId);
+      if (r && r.drawing) await store.put('drawings', r.drawing);
+      emit('data', { drawings: true });
+      return;
+    }
+    case 'deleteDrawing':
+      await api(`/api/drawings/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
       return;
     default:
       throw Object.assign(new Error(`unknown op ${item.op}`), { status: 400 });
@@ -412,9 +463,90 @@ export async function videoStreams() {
   }
 }
 
-export function videoUrl(path) {
+let mediaToken = { token: '', until: 0 };
+
+/** URL with a short-lived media token (never the session token in URLs). */
+export async function mediaUrl(path) {
+  if (Date.now() > mediaToken.until) {
+    const r = await api('/api/media_token', { method: 'POST', timeout: 6000 });
+    mediaToken = { token: r.token, until: Date.now() + (r.expires_in - 60) * 1000 };
+  }
   const sep = path.includes('?') ? '&' : '?';
-  return `${apiUrl(path)}${sep}token=${encodeURIComponent(state.token)}`;
+  return `${apiUrl(path)}${sep}token=${encodeURIComponent(mediaToken.token)}`;
+}
+
+export function serverUrl(path) {
+  return apiUrl(path);
+}
+
+// ---- Alerts, reports, drawings, data packages ------------------------------
+
+export async function raiseAlert(kind, fix, text = '') {
+  await enqueue({ op: 'alert', payload: { kind, lat: fix?.lat ?? 0, lng: fix?.lng ?? 0, text } });
+}
+
+export async function activeAlerts() {
+  try { return (await api('/api/tak/alerts', { timeout: 6000 })).alerts; } catch (_) { return []; }
+}
+
+export async function submitReport(report) {
+  await enqueue({ op: 'report', payload: report });
+}
+
+export async function createDrawing(d) {
+  const localId = `local-d-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  await store.put('drawings', { ...d, id: localId, created_by: state.user?.username || 'local', _pending: true });
+  emit('data', { drawings: true });
+  await enqueue({ op: 'createDrawing', localId, payload: { ...d, created_by: state.user?.username } });
+}
+
+export async function deleteDrawing(id) {
+  const prev = await store.get('drawings', id);
+  await store.del('drawings', id);
+  emit('data', { drawings: true });
+  if (prev && prev._pending) {
+    for (const i of await store.all('outbox')) if (i.localId === id) await store.del('outbox', i.seq);
+    return;
+  }
+  await enqueue({ op: 'deleteDrawing', id });
+}
+
+export async function packages() {
+  try {
+    const r = await api('/api/tak/packages', { timeout: 8000 });
+    await store.put('kv', r.packages, 'packages');
+    return r.packages;
+  } catch (_) {
+    return (await store.get('kv', 'packages')) || [];
+  }
+}
+
+export async function importPackage(hash) {
+  return api(`/api/tak/packages/${encodeURIComponent(hash)}/import`, { method: 'POST', timeout: 30000 });
+}
+
+export async function uploadPackage(file) {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  const res = await fetch(apiUrl('/api/tak/packages'), { method: 'POST', body: fd, headers: { Authorization: `Bearer ${state.token}` } });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+  return (await res.json()).package;
+}
+
+/** Overlay file (KML/GPX/...) from the server, cached for offline use. */
+export async function overlayFile(url) {
+  const key = `ovfile:${url}`;
+  const cached = await store.get('kv', key);
+  if (cached) return cached;
+  const res = await fetch(url.startsWith('http') ? url : apiUrl(url));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  await store.put('kv', blob, key);
+  return blob;
+}
+
+export async function confirmWipe() {
+  try { await api('/api/eud/wipe/confirm', { method: 'POST', timeout: 6000 }); } catch (_) { /* best effort */ }
 }
 
 /** Send a raw message over the WebSocket (used for camera frames). */

@@ -164,3 +164,14 @@ def test_connection_package():
     pref = z.read("lpu5/lpu5.pref").decode()
     assert "192.168.8.10:8088:tcp" in pref and "ALPHA-1" in pref
     assert 'zipEntry="lpu5/lpu5.pref"' in z.read("MANIFEST/manifest.xml").decode()
+
+
+def test_own_events_echo_is_ignored(tmp_path):
+    reports = []
+    b = ti.TakBridge(str(tmp_path), send_cot=lambda x: None, on_report=reports.append)
+    sent = []
+    b.cb["send_cot"] = sent.append
+    b.submit_report({"kind": "medevac", "callsign": "A", "lat": 1, "lng": 2, "fields": {"urgent": "1"}})
+    assert len(reports) == 1 and len(sent) == 1
+    assert b.handle_inbound(sent[0]) is True  # echo via multicast
+    assert len(reports) == 1

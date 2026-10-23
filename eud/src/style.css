@@ -151,3 +151,26 @@ video.preview { width: 100%; border-radius: 8px; background: #000; max-height: 3
 .fingerprint { display: block; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; background: #0b100d;
   border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; color: var(--warn); }
 .fingerprint:empty { display: none; }
+
+/* SOS / alerts */
+#toolbar .sos-btn { background: #7a1010; border-color: #ff4d4d; color: #fff; font-size: 13px; font-weight: 800; letter-spacing: .05em; }
+.sos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn.sos { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 16px 10px; text-align: left; min-height: 84px; touch-action: none; user-select: none; }
+.btn.sos span { font-size: 12px; color: var(--muted); }
+.btn.sos.danger { background: #5a1414; border-color: #ff4d4d; }
+.btn.sos.warn { background: #4a3e12; border-color: var(--warn); }
+.btn.sos .hold { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: #fff; }
+.btn.sos.holding .hold { width: 100%; transition: width 1.5s linear; }
+#alert-banner { position: fixed; left: 8px; right: 64px; top: calc(var(--bar-h) + var(--safe-top) + 8px); z-index: 1200; background: #b00020; color: #fff;
+  font-weight: 700; padding: 10px 12px; border-radius: 8px; animation: alert-blink 1s infinite; cursor: pointer; }
+@keyframes alert-blink { 50% { background: #ff1744; } }
+.alert-icon span { display: inline-block; white-space: nowrap; background: #b00020; color: #fff; font-weight: 700; padding: 2px 6px; border-radius: 4px; animation: alert-blink 1s infinite; }
+/* drawing */
+#draw-bar { position: fixed; left: 8px; right: 64px; bottom: calc(60px + var(--safe-bottom)); z-index: 960; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; display: flex; gap: 6px; align-items: center; }
+#draw-bar #draw-text { flex: 1; font-size: 13px; }
+/* PIN lock */
+.pin-box { max-width: 300px; }
+.pin-dots { text-align: center; font-size: 26px; letter-spacing: .3em; min-height: 36px; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.pin-pad .btn { font-size: 22px; padding: 14px 0; }

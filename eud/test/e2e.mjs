@@ -12,8 +12,8 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); els
 const sb = async () => (await page.locator('#statusbar').innerText()).replace(/\n/g, ' | ');
 await page.goto(EUD);
 await page.fill('#login-server', SERVER);
-await page.fill('#login-user', 'administrator');
-await page.fill('#login-pass', 'password');
+await page.fill('#login-user', process.env.LPU5_USER || 'administrator');
+await page.fill('#login-pass', process.env.LPU5_PASS || 'password');
 await page.click('#login-submit');
 await page.waitForSelector('#sb-link.online', { timeout: 15000 });
 console.log('after login:', await sb());

@@ -7,10 +7,12 @@ import * as geo from './geo.js';
 import * as overlays from './overlays.js';
 import * as mesh from './mesh.js';
 import * as camera from './camera.js';
+import * as ops from './ops.js';
+import * as lockMod from './lock.js';
 import { BASEMAPS, countTiles, downloadArea, importMBTiles, clearTiles, tileStats } from './tiles.js';
 import { AFFILIATIONS, FUNCTIONS, buildSidc, sidcFor, symbolPreview, escapeHtml } from './symbols.js';
 import { distance, bearing, formatDistance, formatBearing, formatCoord, ago } from './geoutil.js';
-import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout } from './main.js';
+import { app, toast, setBasemap, availableBasemaps, renderOverlays, renderTrack, clearTrack, navigateTo, showLogin, centerReadout, forcePasswordChange } from './main.js';
 
 const $ = (id) => document.getElementById(id);
 let current = null;
@@ -20,6 +22,7 @@ const chatChannel = 'all';
 export function open(name) {
   if (current === name) { close(); return; }
   current = name;
+  if (OPS[name]) { markActive(name); OPS[name](); return; }
   document.querySelectorAll('#toolbar button').forEach((b) => b.classList.toggle('active', b.dataset.action === name || (b.dataset.action === 'locate' && app.follow)));
   const fn = PANELS[name];
   if (fn) fn();
@@ -36,12 +39,25 @@ export function close() {
   if (img) img.src = ''; // stop MJPEG download
 }
 
-function sheet(title, html) {
+export function sheet(title, html) {
   $('sheet-title').textContent = title;
   $('sheet-body').innerHTML = html;
   $('sheet').classList.remove('hidden');
   return $('sheet-body');
 }
+
+const OPS = {
+  sos: () => ops.sosPanel(),
+  report: () => ops.reportPanel(),
+  draw: () => ops.drawPanel(),
+  packages: () => ops.packagesPanel(),
+};
+
+function markActive(name) {
+  document.querySelectorAll('#toolbar button').forEach((b) => b.classList.toggle('active', b.dataset.action === name));
+}
+
+export function isOpen(name) { return current === name; }
 
 const PANELS = {
   layers: layersPanel,
@@ -146,7 +162,7 @@ async function layersPanel() {
     <label class="check"><input type="checkbox" id="ly-track" ${store.setting('showTrack', true) ? 'checked' : ''}> Eigene Spur anzeigen</label>
     <div class="row"><button class="btn primary grow" id="ly-import">Datei importieren (KML/KMZ/GPX/GeoJSON/MBTiles)</button></div>
   `);
-  body.querySelectorAll('input[name=bm]').forEach((r) => { r.onchange = () => setBasemap(r.value); });
+  body.querySelectorAll('input[name=bm]').forEach((r) => { r.onchange = () => { store.saveSetting('basemapChosen', true); setBasemap(r.value); }; });
   body.querySelectorAll('[data-ov]').forEach((c) => { c.onchange = async () => { await overlays.setVisible(c.dataset.ov, c.checked); renderOverlays(); }; });
   body.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { await overlays.removeLocal(b.dataset.rm); renderOverlays(); layersPanel(); }; });
   body.querySelectorAll('[data-zoom]').forEach((b) => {
@@ -513,7 +529,7 @@ async function videoPanel() {
   const show = () => {
     const s = streams.find((x) => x.id === sel.value);
     const img = body.querySelector('#vid-img');
-    img.src = sync.videoUrl(`/api/video/streams/${encodeURIComponent(s.id)}/mjpeg`);
+    sync.mediaUrl(`/api/video/streams/${encodeURIComponent(s.id)}/mjpeg`).then((u) => { img.src = u; }).catch(() => img.onerror());
     img.onerror = () => { body.querySelector('#vid-info').textContent = sync.state.link === 'offline' ? 'Offline – kein Video' : 'Stream nicht verfügbar'; };
     body.querySelector('#vid-info').textContent = `${s.source_type || ''} · ${s.analytics ? `KI: ${s.model || 'YOLO'} (${(s.classes || []).join(', ') || 'alle Klassen'})` : 'ohne Analyse'}`;
   };
@@ -533,6 +549,15 @@ function settingsPanel() {
     <div class="row">${u ? '<button class="btn" id="st-logout">Abmelden</button>' : '<button class="btn primary" id="st-login">Anmelden</button>'}
       <button class="btn" id="st-sync" ${u ? '' : 'disabled'}>Jetzt synchronisieren</button></div>
     <div class="muted">Letzte Synchronisierung: ${sync.state.lastSync ? new Date(sync.state.lastSync).toLocaleString() : '–'} · Ausstehend: ${sync.state.outbox}</div>
+    ${sync.isAdmin() ? `<div class="row"><a class="btn grow" id="st-hq" href="${escapeHtml(sync.hqUrl())}" target="_blank" rel="noopener">⇦ Hauptansicht (HQ) öffnen</a></div>` : ''}
+    <h3>Sicherheit</h3>
+    <div class="row">
+      <button class="btn" id="st-pw" ${u ? '' : 'disabled'}>Passwort ändern</button>
+      <button class="btn" id="st-pin">PIN festlegen</button>
+      <button class="btn" id="st-pin-off">PIN entfernen</button>
+    </div>
+    <label>Sperren nach Hintergrund (Minuten, 0 = sofort)<input type="number" id="st-lock" min="0" max="240" value="${s('lockAfterMinutes', 5)}"></label>
+    <div class="muted">Nach 10 falschen PIN-Eingaben werden alle Daten auf diesem Gerät gelöscht. Administratoren können ein verlorenes Gerät aus der Ferne löschen.</div>
     <h3>Standort (PLI)</h3>
     <label>Sendeintervall (Sekunden)<input type="number" id="st-pli" min="2" max="600" value="${s('pliInterval', 10)}"></label>
     <label>Mindestbewegung GPS (Meter, nach Neustart)<input type="number" id="st-dist" min="0" max="500" value="${s('distanceFilter', 5)}"></label>
@@ -552,6 +577,25 @@ function settingsPanel() {
   `);
   const bindNum = (id, key) => { body.querySelector(id).onchange = (e) => store.saveSetting(key, Math.max(+e.target.min, +e.target.value || 0)); };
   bindNum('#st-pli', 'pliInterval');
+  bindNum('#st-lock', 'lockAfterMinutes');
+  const pwBtn = body.querySelector('#st-pw');
+  if (pwBtn) pwBtn.onclick = () => { close(); forcePasswordChange(); };
+  lockMod.hasPin().then((has) => {
+    const off = body.querySelector('#st-pin-off');
+    if (off) off.disabled = !has;
+    const on = body.querySelector('#st-pin');
+    if (on) on.textContent = has ? 'PIN ändern' : 'PIN festlegen';
+  });
+  body.querySelector('#st-pin').onclick = async () => {
+    const pin = prompt('Neue PIN (4–8 Ziffern):');
+    if (pin === null) return;
+    if (pin !== prompt('PIN wiederholen:')) { toast('PINs stimmen nicht überein'); return; }
+    try { await lockMod.setPin(pin); toast('PIN gesetzt'); settingsPanel(); } catch (e) { toast(e.message, 5000); }
+  };
+  body.querySelector('#st-pin-off').onclick = async () => {
+    if (!confirm('PIN-Sperre entfernen?')) return;
+    await lockMod.removePin(); toast('PIN entfernt'); settingsPanel();
+  };
   bindNum('#st-dist', 'distanceFilter');
   body.querySelector('#st-track').onchange = (e) => store.saveSetting('recordTrack', e.target.checked);
   body.querySelector('#st-cleartrack').onclick = async () => { if (confirm('Aufgezeichnete Spur löschen?')) { await clearTrack(); toast('Spur gelöscht'); } };
