@@ -10016,6 +10016,253 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
         <audio id="sdrAudioEl" preload="none" style="display:none;"></audio>
     </div>
 
+    <!-- Funk-Mitschrift (Whisper) – radio_transcribe.py -->
+    <div class="panel" id="funkLogPanel" style="margin-top:16px;">
+        <div class="panel-header">
+            <div class="panel-title"><i class="fas fa-closed-captioning"></i> Funk-Mitschrift (Whisper)</div>
+            <span class="status-badge status-offline" id="funkStatus">Aus</span>
+        </div>
+        <div id="funkMissing" style="display:none; margin:8px 0; padding:8px 10px; border:1px solid #6b5518; background:#3a2f10; border-radius:6px; font-size:0.85rem;"></div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin-top:8px;">
+            <label style="font-size:0.8rem;color:var(--text-dim);">Quelle
+                <select id="funkSource" style="width:100%">
+                    <option value="sdr">RTL-SDR (Frequenz unten)</option>
+                    <option value="soundcard">Funkgerät über USB-Soundkarte</option>
+                </select></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);" id="funkFreqWrap">Frequenz MHz
+                <input id="funkFreq" type="number" step="0.00001" style="width:100%"></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);" id="funkModeWrap">Modulation
+                <select id="funkMode" style="width:100%"><option value="fm">FM</option><option value="am">AM</option><option value="usb">USB</option><option value="lsb">LSB</option><option value="wbfm">WBFM</option></select></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);display:none;" id="funkDeviceWrap">Eingang
+                <select id="funkDevice" style="width:100%"></select></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);">Bezeichnung
+                <input id="funkLabel" placeholder="z. B. Kanal Zug 1" style="width:100%"></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);">Modell
+                <select id="funkModel" style="width:100%"></select></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);">Sprache
+                <select id="funkLang" style="width:100%"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="">Automatisch</option></select></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);">Schwelle dB
+                <input id="funkThreshold" type="number" step="1" style="width:100%"></label>
+            <label style="font-size:0.8rem;color:var(--text-dim);">Sprechpause s
+                <input id="funkPause" type="number" step="0.1" min="0.3" style="width:100%"></label>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px;">
+            <button class="btn btn-primary" id="funkStartBtn"><i class="fas fa-play"></i> Mitschrift starten</button>
+            <button class="btn" id="funkSdrFreqBtn" title="Frequenz/Modulation aus dem SDR-Bereich übernehmen"><i class="fas fa-sync"></i> SDR-Frequenz übernehmen</button>
+            <label style="font-size:0.8rem;"><input type="checkbox" id="funkKeepAudio"> Audio behalten</label>
+            <span style="flex:1"></span>
+            <div style="min-width:160px; flex:1; max-width:260px;">
+                <div style="height:8px; background:#222; border-radius:4px; overflow:hidden;"><div id="funkLevelBar" style="height:100%; width:0; background:var(--accent-green,#28a745);"></div></div>
+                <div id="funkInfo" style="font-size:0.75rem; color:var(--text-dim); margin-top:3px;">–</div>
+            </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+            <input id="funkSearch" placeholder="Protokoll durchsuchen…" style="flex:1; min-width:160px;">
+            <button class="btn" id="funkExportBtn"><i class="fas fa-file-export"></i> Textprotokoll</button>
+            <label class="btn" style="margin:0; cursor:pointer;"><i class="fas fa-upload"></i> WAV-Aufnahme<input type="file" id="funkUpload" accept=".wav,audio/wav" style="display:none"></label>
+        </div>
+        <div id="funkLog" style="margin-top:10px; max-height:420px; overflow-y:auto; border:1px solid var(--border-color,#333); border-radius:6px; padding:6px 8px; font-size:0.9rem;"></div>
+        <div style="margin-top:8px; font-size:0.78rem; color:var(--text-dim);">
+            <i class="fas fa-info-circle"></i>
+            Jeder erkannte Funkspruch wird sofort dauerhaft gespeichert (radio_log/funklog.sqlite3 und Funkprotokoll.txt) – die Anzeige ist das Protokoll.
+            Läuft die Mitschrift über das SDR, hört „Enable Audio“ denselben Kanal mit. Whisper liefert keine garantiert wortgetreue Mitschrift; Rufzeichen und Zahlen prüfen.
+        </div>
+    </div>
+    <script>
+    (function () {
+        var $ = function (id) { return document.getElementById(id); };
+        var token = function () { return localStorage.getItem('token') || ''; };
+        var H = function () { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() }; };
+        var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+        var state = { running: false, lastId: 0, entries: [], ws: null, started: false, settings: {} };
+
+        function api(path, opts) {
+            opts = opts || {};
+            opts.headers = Object.assign(H(), opts.headers || {});
+            return fetch(path, opts).then(function (r) {
+                if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) { throw new Error(b.detail || b.message || ('HTTP ' + r.status)); });
+                return r.json();
+            });
+        }
+
+        function renderStatus(s) {
+            state.running = !!s.running;
+            var badge = $('funkStatus');
+            badge.textContent = s.running ? 'Empfang läuft' : (s.status || 'Aus');
+            badge.className = 'status-badge ' + (s.running ? 'status-online' : (s.error ? 'status-waiting' : 'status-offline'));
+            $('funkStartBtn').innerHTML = s.running ? '<i class="fas fa-stop"></i> Mitschrift stoppen' : '<i class="fas fa-play"></i> Mitschrift starten';
+            $('funkStartBtn').className = 'btn ' + (s.running ? 'btn-danger' : 'btn-primary');
+            var lvl = Math.max(0, Math.min(100, ((s.level_db || -120) + 70) * 100 / 70));
+            $('funkLevelBar').style.width = (s.running ? lvl : 0) + '%';
+            $('funkInfo').textContent = (s.running ? 'Pegel ' + (s.level_db || -120).toFixed(0) + ' dB · ' : '')
+                + 'Warteschlange ' + (s.queue || 0) + (s.backend ? ' · ' + s.backend : '')
+                + (s.realtime_factor ? ' · ' + s.realtime_factor + '× Echtzeit' : '')
+                + (s.dropouts ? ' · Aussetzer ' + s.dropouts : '')
+                + (s.error ? ' · ⚠ ' + s.error : '');
+            if (s.capabilities) {
+                var miss = [];
+                if (!s.capabilities.faster_whisper) miss.push('faster-whisper');
+                if (!s.capabilities.scipy) miss.push('scipy');
+                if (!s.capabilities.sounddevice) miss.push('sounddevice (nur für Soundkarte)');
+                var m = $('funkMissing');
+                m.style.display = miss.length || s.rtl_fm === false ? 'block' : 'none';
+                m.innerHTML = (miss.length ? 'Fehlende Pakete: <code>pip install ' + esc(miss.map(function (x) { return x.split(' ')[0]; }).join(' ')) + '</code>. ' : '')
+                    + (s.rtl_fm === false ? 'rtl_fm nicht gefunden – für SDR-Quelle RTL-SDR-Tools installieren.' : '');
+            }
+            ['funkSource', 'funkFreq', 'funkMode', 'funkDevice'].forEach(function (id) { $(id).disabled = state.running; });
+        }
+
+        function fillSettings(st) {
+            state.settings = st;
+            $('funkSource').value = st.source;
+            $('funkFreq').value = st.frequency_mhz;
+            $('funkMode').value = st.mode;
+            $('funkLabel').value = st.channel_label || '';
+            $('funkLang').value = st.language || '';
+            $('funkThreshold').value = st.threshold_db;
+            $('funkPause').value = st.pause_s;
+            $('funkKeepAudio').checked = !!st.keep_audio;
+            toggleSourceFields();
+        }
+
+        function toggleSourceFields() {
+            var sdr = $('funkSource').value === 'sdr';
+            $('funkFreqWrap').style.display = sdr ? '' : 'none';
+            $('funkModeWrap').style.display = sdr ? '' : 'none';
+            $('funkSdrFreqBtn').style.display = sdr ? '' : 'none';
+            $('funkDeviceWrap').style.display = sdr ? 'none' : '';
+            if (!sdr && !$('funkDevice').options.length) loadDevices();
+        }
+
+        function loadDevices() {
+            api('/api/radio/devices').then(function (r) {
+                var sel = $('funkDevice');
+                sel.innerHTML = '<option value="">Standard-Eingang</option>' + r.soundcards.map(function (d) {
+                    return '<option value="' + d.index + '">' + esc(d.name) + ' (' + esc(d.api) + ')</option>';
+                }).join('');
+                if (state.settings.device != null) sel.value = state.settings.device;
+            }).catch(function () {});
+        }
+
+        function collect() {
+            return {
+                source: $('funkSource').value,
+                frequency_mhz: $('funkFreq').value,
+                mode: $('funkMode').value,
+                device: $('funkDevice').value,
+                channel_label: $('funkLabel').value.trim(),
+                model: $('funkModel').value,
+                language: $('funkLang').value,
+                threshold_db: $('funkThreshold').value,
+                pause_s: $('funkPause').value,
+                keep_audio: $('funkKeepAudio').checked
+            };
+        }
+
+        function saveSettings() {
+            var data = collect();
+            if (state.running) ['source', 'frequency_mhz', 'mode', 'device'].forEach(function (k) { delete data[k]; });
+            return api('/api/radio/settings', { method: 'PUT', body: JSON.stringify(data) }).then(function (r) { state.settings = r.settings; });
+        }
+
+        function entryHtml(e) {
+            var t = new Date(e.started);
+            var meta = esc(t.toLocaleDateString()) + ' ' + esc(t.toLocaleTimeString()) + ' · ' + esc(e.source) + (e.duration ? ' · ' + e.duration + ' s' : '');
+            var audio = e.has_audio ? ' <a href="/api/radio/audio/' + e.id + '?token=' + encodeURIComponent(token()) + '" target="_blank" title="Aufnahme anhören"><i class="fas fa-play-circle"></i></a>' : '';
+            return '<div class="funk-entry" data-id="' + e.id + '" style="padding:5px 0; border-bottom:1px solid rgba(255,255,255,.06);">'
+                + '<div style="font-size:0.75rem; color:var(--text-dim);">' + meta + audio + '</div>'
+                + '<div>' + esc(e.text) + '</div></div>';
+        }
+
+        function renderLog() {
+            var q = $('funkSearch').value.trim().toLowerCase();
+            var list = q ? state.entries.filter(function (e) { return (e.text + ' ' + e.source).toLowerCase().indexOf(q) >= 0; }) : state.entries;
+            var box = $('funkLog');
+            var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+            box.innerHTML = list.length ? list.map(entryHtml).join('') : '<div style="color:var(--text-dim)">Noch keine Funksprüche protokolliert.</div>';
+            if (atBottom || !q) box.scrollTop = box.scrollHeight;
+        }
+
+        function addEntry(e) {
+            if (state.entries.some(function (x) { return x.id === e.id; })) return;
+            state.entries.push(e);
+            if (state.entries.length > 1000) state.entries.shift();
+            state.lastId = Math.max(state.lastId, e.id);
+            renderLog();
+        }
+
+        function loadEntries() {
+            return api('/api/radio/transcripts?limit=500&after_id=' + state.lastId).then(function (r) { r.entries.forEach(addEntry); renderLog(); });
+        }
+
+        function connectWs() {
+            var ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws?token=' + encodeURIComponent(token()));
+            state.ws = ws;
+            ws.onopen = function () { ws.send(JSON.stringify({ type: 'subscribe', channel: 'radio' })); loadEntries().catch(function () {}); };
+            ws.onmessage = function (ev) {
+                var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+                if (m.type === 'radio_transcript') addEntry(m.data);
+                else if (m.type === 'radio_status') renderStatus(m.data);
+            };
+            ws.onclose = function () { setTimeout(connectWs, 3000); };
+        }
+
+        function init() {
+            if (state.started || !token()) return;
+            state.started = true;
+            api('/api/radio/status').then(function (s) {
+                $('funkModel').innerHTML = s.models.map(function (m) { return '<option>' + m + '</option>'; }).join('');
+                $('funkModel').value = s.settings.model;
+                fillSettings(s.settings);
+                renderStatus(s);
+            }).catch(function (e) { $('funkInfo').textContent = 'Mitschrift nicht verfügbar: ' + e.message; });
+            loadEntries().catch(function () {});
+            connectWs();
+            setInterval(function () { api('/api/radio/status').then(renderStatus).catch(function () {}); }, 5000);
+        }
+
+        $('funkSource').onchange = function () { toggleSourceFields(); saveSettings().catch(function (e) { alert(e.message); }); };
+        ['funkFreq', 'funkMode', 'funkDevice', 'funkLabel', 'funkModel', 'funkLang', 'funkThreshold', 'funkPause', 'funkKeepAudio'].forEach(function (id) {
+            $(id).onchange = function () { saveSettings().catch(function (e) { alert(e.message); }); };
+        });
+        $('funkSdrFreqBtn').onclick = function () {
+            var f = document.getElementById('sdrFrequency'), m = document.getElementById('sdrMode');
+            if (f && f.value) $('funkFreq').value = f.value;
+            if (m && m.value) $('funkMode').value = m.value.toLowerCase();
+            saveSettings().catch(function (e) { alert(e.message); });
+        };
+        $('funkStartBtn').onclick = function () {
+            var btn = $('funkStartBtn');
+            btn.disabled = true;
+            var go = state.running ? api('/api/radio/stop', { method: 'POST' })
+                : saveSettings().then(function () { return api('/api/radio/start', { method: 'POST' }); });
+            go.then(renderStatus).catch(function (e) { alert('Funk-Mitschrift: ' + e.message); }).then(function () { btn.disabled = false; });
+        };
+        $('funkSearch').oninput = renderLog;
+        $('funkExportBtn').onclick = function () { window.open('/api/radio/export.txt?token=' + encodeURIComponent(token()), '_blank'); };
+        $('funkUpload').onchange = function (ev) {
+            var f = ev.target.files[0];
+            if (!f) return;
+            var fd = new FormData();
+            fd.append('file', f);
+            fd.append('source', 'Aufnahme ' + f.name);
+            fetch('/api/radio/transcribe', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: fd })
+                .then(function (r) { return r.json().then(function (b) { if (!r.ok) throw new Error(b.detail || b.message); return b; }); })
+                .then(function (b) { $('funkInfo').textContent = b.segments + ' Abschnitt(e) in Warteschlange'; })
+                .catch(function (e) { alert('Upload: ' + e.message); });
+            ev.target.value = '';
+        };
+
+        // Start polling/WebSocket only when the radio area is actually shown.
+        var panel = $('funkLogPanel');
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(function (es) { if (es.some(function (e) { return e.isIntersecting; })) init(); }).observe(panel);
+        } else {
+            init();
+        }
+    })();
+    </script>
+
     <!-- Windows Setup Guide -->
     <div class="setup-guide">
         <details>

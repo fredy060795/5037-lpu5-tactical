@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f0c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LPU5 EUD">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>LPU5 EUD</title>
+  <script type="module" crossorigin src="./assets/index-BuGMEVvY.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-UzOYw5kd.css">
+</head>
+<body>
+  <!-- Login -->
+  <div id="login" class="screen hidden">
+    <form id="login-form" class="login-box" autocomplete="on">
+      <img src="icon-192.png" alt="" class="login-logo">
+      <h1>LPU5 TACTICAL</h1>
+      <p class="muted">End User Device</p>
+      <label>Server
+        <input id="login-server" name="server" placeholder="https://192.168.8.10:8101" inputmode="url" autocapitalize="off" required>
+      </label>
+      <label>Benutzer
+        <input id="login-user" name="username" autocomplete="username" autocapitalize="off" required>
+      </label>
+      <label>Passwort
+        <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn primary" id="login-submit">Anmelden</button>
+      <button type="button" class="btn" id="login-offline">Offline fortfahren</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </div>
+
+  <!-- Certificate confirmation -->
+  <div id="trust-dialog" class="screen hidden" style="z-index:3500">
+    <div class="login-box">
+      <h1 id="trust-title" style="font-size:17px;letter-spacing:.04em"></h1>
+      <p id="trust-text" class="muted" style="text-align:left"></p>
+      <code id="trust-fp" class="fingerprint"></code>
+      <button type="button" class="btn primary" id="trust-ok">Vertrauen &amp; verbinden</button>
+      <button type="button" class="btn" id="trust-cancel">Abbrechen</button>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <header id="statusbar">
+    <span id="sb-callsign" class="sb-item strong">EUD</span>
+    <span id="sb-link" class="sb-item link offline" title="Verbindung">OFFLINE</span>
+    <span id="sb-gps" class="sb-item" title="GPS">GPS –</span>
+    <span id="sb-mesh" class="sb-item hidden" title="Meshtastic">MESH</span>
+    <span id="sb-outbox" class="sb-item hidden" title="Ausstehende Meldungen">⇪ 0</span>
+    <span id="sb-nav" class="sb-item hidden"></span>
+  </header>
+
+  <div id="map"></div>
+  <div id="crosshair" class="hidden">+</div>
+
+  <!-- Coordinate readout -->
+  <footer id="coords">
+    <span id="coord-self" title="Eigener Standort">–</span>
+    <span id="coord-center" title="Kartenmitte">–</span>
+  </footer>
+
+  <!-- Toolbar -->
+  <nav id="toolbar">
+    <button data-action="locate" title="Eigener Standort / Folgen">◎</button>
+    <button data-action="north" title="Nord oben / Kompass">N</button>
+    <button data-action="add" title="Marker setzen">＋</button>
+    <button data-action="measure" title="Messen">⟷</button>
+    <button data-action="layers" title="Karten &amp; Overlays">▤</button>
+    <button data-action="offline" title="Offline-Karten">⬇</button>
+    <button data-action="contacts" title="Kontakte">☰</button>
+    <button data-action="chat" title="Chat">✉<span id="chat-badge" class="badge hidden">0</span></button>
+    <button data-action="mesh" title="Meshtastic (Bluetooth)">📡<span id="mesh-dot" class="badge hidden">●</span></button>
+    <button data-action="video" title="Video / Analyse / Kamera">▶</button>
+    <button data-action="settings" title="Einstellungen">⚙</button>
+  </nav>
+
+  <!-- Measure readout -->
+  <div id="measure-bar" class="hidden">
+    <span id="measure-text">Punkte auf die Karte tippen</span>
+    <button class="btn small" id="measure-undo">↶</button>
+    <button class="btn small" id="measure-done">Fertig</button>
+  </div>
+
+  <!-- Bottom sheet -->
+  <section id="sheet" class="hidden" aria-live="polite">
+    <div class="sheet-head">
+      <h2 id="sheet-title"></h2>
+      <button id="sheet-close" class="btn small" aria-label="Schließen">✕</button>
+    </div>
+    <div id="sheet-body"></div>
+  </section>
+
+  <div id="toast" class="hidden"></div>
+  <input type="file" id="file-input" class="hidden" accept=".kml,.kmz,.gpx,.geojson,.json,.mbtiles">
+
+</body>
+</html>

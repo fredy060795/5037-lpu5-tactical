@@ -5,27 +5,18 @@
 
 A comprehensive tactical tracking system with integrated Meshtastic support for real-time mesh network communication, COT (Cursor on Target) protocol, and position tracking. **Now split into multi-platform implementations**: iOS Progressive Web App (PWA) for HQ access and Android Native App for direct mesh communication.
 
-## 🚀 Multi-Platform Architecture
+## 🚀 Neu: EUD-App (Android · iOS · PWA) und Videoanalyse
 
-This system provides **two optimized implementations**:
+| Komponente | Beschreibung | Doku |
+|---|---|---|
+| **EUD-Client** (`eud/`) | Offline-fähiger Feldclient wie ATAK: Offline-Karten & MBTiles, eigener Standort auch bei gesperrtem Bildschirm, MIL-STD-2525-Lagebild, KML/KMZ/GPX/GeoJSON-Overlays, Outbox bei Verbindungsabbruch, Chat, **Meshtastic per Bluetooth ohne Server**, Kamera teilen | [eud/README.md](eud/README.md) |
+| **Android-APK / iOS-App** | Werden von GitHub Actions gebaut (`.github/workflows/eud-build.yml`) | [eud/README.md](eud/README.md#installation-auf-dem-gerät) |
+| **PWA** | Vom Server unter `https://<server>:8101/eud/` – installierbar, offline nutzbar | [eud/README.md](eud/README.md) |
+| **Videoanalyse** | YOLOv8 auf RTSP/HTTP/Datei/Handy-Kameras, Erkennungen als Alarm und Lagemarker (CoT → ATAK) | [VIDEO_ANALYTICS.md](VIDEO_ANALYTICS.md) |
+| **Funk-Mitschrift** | Whisper-Logik aus FunkLog: SDR- oder Funkgeräte-Audio wird mitgeschrieben und dauerhaft protokolliert, live im Funk-Bereich und im EUD | [RADIO_TRANSCRIPTION.md](RADIO_TRANSCRIPTION.md) |
+| **HTTPS/Zertifikat** | Eigene LPU5-Root-CA (`/lpu5-ca.crt`) – nötig, damit Kamera, Bluetooth und Offline-Modus im Browser freigegeben werden | [eud/README.md](eud/README.md#warum-kamera-und-bluetooth-bisher-nicht-gingen--https-zertifikat) |
 
-### 📱 iOS PWA (Progressive Web App)
-- **Use Case**: HQ personnel, remote coordination
-- **Access**: Via HQ's public IP using Safari
-- **Communication**: REST API + WebSocket to HQ server
-- **Meshtastic on iOS**: Direct BLE via Capacitor app, or use Meshtastic iOS app + iTAK with built-in TAK server
-- **Deployment**: Add to Home Screen from web browser
-- **Quick Start**: [pwa/IOS_INSTALL.md](pwa/IOS_INSTALL.md) - Step-by-step iOS installation
-- **Technical Docs**: [pwa/README.md](pwa/README.md) - Detailed PWA documentation
-
-### 🤖 Android Native App
-- **Use Case**: Field operators, direct mesh communication
-- **Access**: Native APK with embedded WebView
-- **Communication**: Native BLE/Serial to Meshtastic devices
-- **Features**: Full offline mesh, GPS tracking, COT exchange
-- **Deployment**: Install APK or distribute via Play Store
-- **Distribution Guide**: [android/DISTRIBUTION.md](android/DISTRIBUTION.md) - APK building and deployment
-- **Technical Docs**: [android/README.md](android/README.md) - Detailed Android documentation
+Die früheren Projekte `android/` (nicht baubar, fehlende Abhängigkeit) und `ionic/` wurden durch `eud/` ersetzt.
 
 ## Features
 

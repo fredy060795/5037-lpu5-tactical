@@ -24,3 +24,13 @@ httpx>=0.27.0
 # To install manually:  pip install pyrtlsdr numpy
 # pyrtlsdr>=0.3.0
 # numpy>=1.24.0
+
+# Optional: Video analytics (video_analytics.py, see VIDEO_ANALYTICS.md)
+# opencv-python-headless>=4.8.0
+# numpy>=1.24.0
+# ultralytics>=8.0.0
+
+# Optional: Radio transcription (radio_transcribe.py, see RADIO_TRANSCRIPTION.md)
+# scipy>=1.12
+# faster-whisper>=1.1
+# sounddevice>=0.5   # only for a radio connected to a USB sound card

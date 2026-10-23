@@ -1,0 +1,38 @@
+{
+  "name": "lpu5-eud",
+  "version": "2.0.0",
+  "private": true,
+  "description": "LPU5 Tactical EUD – offline-first field client (Android APK, iOS, PWA)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.mjs",
+    "cap:sync": "vite build && cap sync",
+    "android:apk": "vite build && cap sync android && cd android && ./gradlew assembleDebug",
+    "android:release": "vite build && cap sync android && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@capacitor-community/background-geolocation": "^1.3.1",
+    "@capacitor-community/bluetooth-le": "^8.3.0",
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/status-bar": "^8.0.4",
+    "@meshtastic/protobufs": "^2.8.0",
+    "@tmcw/togeojson": "^7.1.3",
+    "jszip": "^3.10.2",
+    "leaflet": "^1.9.4",
+    "mgrs": "^2.2.0",
+    "milsymbol": "^3.0.4",
+    "sql.js": "^1.15.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "vite": "^8.3.5"
+  }
+}
