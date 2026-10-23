@@ -798,7 +798,7 @@ async function networkPanel(msg = null) {
     const weak = network.passwordProblem(pass, v('#reg-user'));
     if (weak) { showMsg(weak, 'error'); return; }
     try {
-      await network.register(url(), { username: v('#reg-user'), password: pass, callsign: v('#reg-call'), unit: v('#reg-unit') });
+      await network.register(url(), { username: v('#reg-user'), password: pass, callsign: v('#reg-call'), unit: v('#reg-unit'), qrToken: netPrefill.qrToken });
       netPrefill = { url: network.normaliseUrl(url()), user: v('#reg-user') };
       networkPanel({ text: 'Registrierung gesendet. Sobald ein Admin sie freigegeben hat, hier mit Benutzer und Passwort verbinden.' });
     } catch (err) {

@@ -144,16 +144,13 @@ export async function units(url) {
 }
 
 /** Ask the server for an account; an admin approves it in the LPU5 admin page. */
-export async function register(url, { username, password, callsign, unit, fullname }) {
+export async function register(url, { username, password, callsign, unit, fullname, qrToken }) {
   const base = normaliseUrl(url);
   await ensureTrusted(base);
   const res = await fetch(`${base}/api/register_user`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // The invitation token is not sent yet: the server compares its expiry date in a way that
-    // fails (HTTP 500) – the registration endpoint is protected [#] and must not be changed
-    // without approval. The admin still approves every registration.
-    body: JSON.stringify({ username, password, callsign: callsign || username, unit: unit || null, fullname: fullname || '', qr_token: null, device: 'EUD' }),
+    body: JSON.stringify({ username, password, callsign: callsign || username, unit: unit || null, fullname: fullname || '', qr_token: qrToken || null, device: 'EUD' }),
   });
   if (!res.ok) {
     let detail = '';

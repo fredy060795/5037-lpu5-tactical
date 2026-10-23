@@ -3463,6 +3463,11 @@ async def delete_user(user_id: str, authorization: Optional[str] = Header(None),
 # -------------------------
 # Pending registration endpoints
 # -------------------------
+def _as_utc(value: datetime) -> datetime:
+    """SQLite returns naive datetimes; they are stored in UTC."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 @app.post("/api/register_user")
 async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
     username = (data.get("username") or "").strip()
@@ -3487,7 +3492,7 @@ async def register_user(data: dict = Body(...), db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Invalid QR token")
         if qr.max_uses > 0 and qr.uses >= qr.max_uses:
             raise HTTPException(status_code=400, detail="QR token max uses exceeded")
-        if qr.expires_at and datetime.now(timezone.utc) > qr.expires_at:
+        if qr.expires_at and datetime.now(timezone.utc) > _as_utc(qr.expires_at):
             raise HTTPException(status_code=400, detail="QR token expired")
         
         qr.uses += 1
@@ -6996,14 +7001,8 @@ def qr_redirect(token: str, request: Request, db: Session = Depends(get_db)):
         logger.error(f"QR token {token} has no redirect_url")
         raise HTTPException(status_code=500, detail="QR code configuration error: missing redirect URL")
 
-    if qr.expires_at:
-        try:
-            if datetime.now(timezone.utc) > qr.expires_at:
-                raise HTTPException(status_code=410, detail="QR token expired")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    if qr.expires_at and datetime.now(timezone.utc) > _as_utc(qr.expires_at):
+        raise HTTPException(status_code=410, detail="QR token expired")
 
     uses = qr.uses
     max_uses = qr.max_uses
