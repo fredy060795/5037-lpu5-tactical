@@ -12833,6 +12833,16 @@ def sdr_measure(data: dict = Body(...)):
     }
 
 
+def _tsl_reachable() -> bool:
+    url = ((load_json("config") or {}).get("tsl_url") or "").rstrip("/")
+    if not url:
+        return False
+    try:
+        return requests.get(f"{url}/api/state", timeout=2).ok
+    except Exception:
+        return False
+
+
 @app.get("/api/dependencies/check", summary="Check hardware and software dependencies")
 def check_dependencies():
     """
@@ -12898,6 +12908,55 @@ def check_dependencies():
             "install": "pip install numpy",
             "description": "Fast FFT for SDR spectrum analysis",
         },
+        {
+            "name": "cryptography",
+            "required": True,
+            "present": _pkg_present("cryptography"),
+            "install": "pip install cryptography",
+            "description": "HTTPS certificates (LPU5 CA), ATAK truststores",
+        },
+        {
+            "name": "PIL",
+            "required": False,
+            "present": _pkg_present("PIL"),
+            "install": "pip install Pillow",
+            "description": "Map tile server: substitute tiles from coarser zoom levels",
+        },
+        {
+            "name": "cv2",
+            "required": False,
+            "present": _pkg_present("cv2"),
+            "install": "pip install opencv-python-headless",
+            "description": "Video analytics: RTSP/HTTP/camera input, MJPEG output",
+        },
+        {
+            "name": "ultralytics",
+            "required": False,
+            "present": _pkg_present("ultralytics"),
+            "install": "pip install ultralytics",
+            "description": "Video analytics: YOLOv8 object detection (loads PyTorch, ~1-2 GB)",
+        },
+        {
+            "name": "faster_whisper",
+            "required": False,
+            "present": _pkg_present("faster_whisper"),
+            "install": "pip install faster-whisper",
+            "description": "Radio transcription (Whisper)",
+        },
+        {
+            "name": "scipy",
+            "required": False,
+            "present": _pkg_present("scipy"),
+            "install": "pip install scipy",
+            "description": "Radio transcription: audio resampling",
+        },
+        {
+            "name": "sounddevice",
+            "required": False,
+            "present": _pkg_present("sounddevice"),
+            "install": "pip install sounddevice",
+            "description": "Radio transcription from a radio on a USB sound card",
+        },
     ]
 
     # --- System tool checks ---
@@ -12941,7 +13000,13 @@ def check_dependencies():
             "name": "rtl_fm",
             "present": bool(_find_rtl_tool("rtl_fm")),
             "install": rtl_sdr_install,
-            "description": "RTL-SDR FM demodulator (optional, used for audio streaming)",
+            "description": "RTL-SDR FM demodulator (optional, used for audio streaming and radio transcription)",
+        },
+        {
+            "name": "tsl_server",
+            "present": _tsl_reachable(),
+            "install": "TSL (Lagetagebuch) starten und in config.json \"tsl_url\" eintragen, z. B. http://127.0.0.1:5008",
+            "description": "TSL situation log – receives radio log, alerts and reports (optional)",
         },
     ]
 

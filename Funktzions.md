@@ -209,3 +209,52 @@ Dies ist eine übersicht aller Funktzionen, alle funktzionen die ein # vor dem N
 > **Legende:**
 > - `[#]` = Funktion ist perfekt und darf **nicht ohne ausdrückliche Anweisung** bearbeitet werden
 > - `[]` = Funktion kann bearbeitet / weiterentwickelt werden
+
+---
+
+## Neue Funktionen (2026-10, noch nicht als geprüft markiert)
+
+Diese Funktionen sind neu. Sie tragen bewusst **kein** `[#]` – erst nach Prüfung im Einsatz markieren.
+
+### Server (api.py und Module)
+
+| Status | Funktion | Kurzbeschreibung |
+|--------|----------|-----------------|
+| [] | ATAK-Zeichnungen/Routen beidseitig (tak_integration.py) | u-d-f/u-d-r/u-d-c-c/b-m-r zwischen ATAK und LPU5, inkl. Löschen |
+| [] | Notrufe & CASEVAC beidseitig | 911/TIC/Ring the Bell/Aufheben, 9-Liner (b-r-f-h-c) |
+| [] | Data Packages / Marti-API (Port 8080) | ATAK „An Server senden“, Server-Pakete, Import, Lage-Export, Verbindungspaket |
+| [] | Video-Feeds ATAK ↔ LPU5 | b-i-v in beide Richtungen |
+| [] | Videoanalyse YOLOv8 (video_analytics.py) | RTSP/HTTP/Datei/Handy-Kamera, Erkennung, Alarm, Lagemarker |
+| [] | Funk-Mitschrift Whisper (radio_transcribe.py) | SDR/Soundkarte → Text, dauerhaftes Protokoll |
+| [] | Kartenkachel-Server (tile_server.py) | /tiles mit Offline-Cache, Vorabdownload, MBTiles |
+| [] | TSL-Anbindung (tsl_bridge.py) | Funk, Alarme, Meldungen, KI-Alarme ins Lagetagebuch |
+| [] | Sicherheit (security.py) | Anmeldepflicht für Änderungen, PBKDF2, Login-Bremse, Passwortwechsel, Medien-Tokens, Datei-Freigabe nur für Web-Dateien |
+| [] | LPU5-Root-CA, /lpu5-ca.crt, /lpu5-ca.mobileconfig | Vertrauenswürdiges HTTPS für alle Geräte |
+| [] | Fernlöschung EUD (/api/eud/wipe) | Daten eines verlorenen Geräts löschen |
+
+### overview.html
+
+| Status | Funktion | Kurzbeschreibung |
+|--------|----------|-----------------|
+| [] | Bedienung bei gedrehter/gekippter Karte | Verschieben/Antippen rechnet die Dreh-/Kipptransformation zurück |
+| [] | Zurück zur Hauptansicht (Admin/Operator) | Knopf in der Kopfleiste, Menükachel, Alt+H |
+| [] | Anmeldung per Token statt gespeichertem Passwort | Kein Klartext-Passwort mehr im Browser |
+
+### SDR / Funk (index.html)
+
+| Status | Funktion | Kurzbeschreibung |
+|--------|----------|-----------------|
+| [] | Panel Funk-Mitschrift (Whisper) | Start/Stopp, Pegel, Live-Protokoll, Suche, Export, WAV-Upload |
+
+### EUD-App (eud/)
+
+| Status | Funktion | Kurzbeschreibung |
+|--------|----------|-----------------|
+| [] | Offline-Lagebild & Outbox | Karte, Position, Marker, Overlays bleiben bei Abbruch; Nachsenden |
+| [] | Offline-Karten | Auto-Cache, Gebietsdownload, MBTiles-Import, LPU5-Kachelserver |
+| [] | SOS, Meldungen, Zeichnen, Data Packages | siehe HANDBUCH.md |
+| [] | Meshtastic per Bluetooth | Mesh-Chat, Knoten, ATAK-PLI ohne Server |
+| [] | Kamera teilen, Video, Funk-Mitschrift lesen | |
+| [] | Geofence-Alarme | Lokal geprüft, auch offline |
+| [] | PIN, Fernlöschung, Zertifikat beim ersten Verbinden | |
+| [] | Nachtmodus, große Bedienelemente | |
