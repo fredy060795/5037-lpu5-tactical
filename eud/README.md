@@ -50,13 +50,13 @@ base64 -w0 lpu5.jks   # Ausgabe -> Secret LPU5_KEYSTORE_BASE64
   Apple verlangt eine Signatur: mit eigenem Apple-Developer-Konto in Xcode
   (`npx cap open ios`, Team wählen, auf Gerät installieren), oder die unsigned IPA
   mit AltStore/Sideloadly signieren. Für Verteilung an viele Geräte: TestFlight/MDM.
-* **PWA:** In Safari `https://<server>:8101/eud/` öffnen → Teilen → „Zum
+* **PWA:** In Safari `https://<server>:5037/eud/` öffnen → Teilen → „Zum
   Home-Bildschirm“. Funktioniert offline (Karte, Lagebild, Standort, Kamera).
   **Kein Bluetooth:** iOS Safari unterstützt kein Web Bluetooth – Meshtastic
   auf dem iPhone nur mit der App.
 
 ### PWA auf Android
-Chrome: `https://<server>:8101/eud/` → Menü → „App installieren“. In Chrome
+Chrome: `https://<server>:5037/eud/` → Menü → „App installieren“. In Chrome
 funktioniert auch **Web Bluetooth (Meshtastic)** und die Kamera.
 
 ## Warum Kamera und Bluetooth bisher nicht gingen – HTTPS-Zertifikat
@@ -88,7 +88,7 @@ iOS: Profil `lpu5-ca.mobileconfig`) und zeigt die restlichen Schritte:
 * **iOS:** Profil erlauben → Einstellungen → „Profil geladen“ → installieren,
   danach Allgemein → Info → **Zertifikatsvertrauenseinstellungen** → LPU5 CA aktivieren.
 
-Manuell: `https://<server>:8101/lpu5-ca.crt` bzw. `/lpu5-ca.mobileconfig`.
+Manuell: `https://<server>:5037/lpu5-ca.crt` bzw. `/lpu5-ca.mobileconfig`.
 Alle späteren Serverzertifikate (auch nach IP-Wechsel) sind damit gültig.
 Alte Zertifikate aus dem früheren Generator werden beim Start automatisch ersetzt.
 
@@ -114,7 +114,7 @@ npm run android:apk  # Debug-APK lokal bauen (Android SDK nötig)
 npx cap open ios     # Xcode (macOS)
 
 # End-to-End-Test gegen laufenden Server (Login, Marker, Offline/Reconnect, Kamera)
-EUD_URL=http://127.0.0.1:8101/eud/ LPU5_SERVER=http://127.0.0.1:8101 node test/e2e.mjs
+EUD_URL=http://127.0.0.1:5037/eud/ LPU5_SERVER=http://127.0.0.1:5037 node test/e2e.mjs
 ```
 
 Nach Änderungen an `src/` bitte `npm run build` ausführen und `dist/` mit

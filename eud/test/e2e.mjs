@@ -1,5 +1,5 @@
 // End-to-end test against a running LPU5 server (see README):
-//   EUD_URL=http://127.0.0.1:8101/eud/ LPU5_SERVER=http://127.0.0.1:8101 node test/e2e.mjs
+//   EUD_URL=http://127.0.0.1:5037/eud/ LPU5_SERVER=http://127.0.0.1:5037 node test/e2e.mjs
 import { chromium } from 'playwright';
 // Top-bar buttons are clicked directly, everything else through the ☰ command menu.
 const act = async (pg, a) => {
@@ -10,7 +10,7 @@ const act = async (pg, a) => {
 };
 
 const EUD = process.env.EUD_URL || 'http://127.0.0.1:4173/';
-const SERVER = process.env.LPU5_SERVER || 'http://127.0.0.1:8101';
+const SERVER = process.env.LPU5_SERVER || 'http://127.0.0.1:5037';
 const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const ctx = await browser.newContext({ geolocation: { latitude: 52.52, longitude: 13.405, accuracy: 8 }, permissions: ['geolocation', 'camera'], viewport: { width: 400, height: 800 } });
 const page = await ctx.newPage();

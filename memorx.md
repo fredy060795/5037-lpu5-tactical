@@ -25,7 +25,7 @@
                         │ HTTP REST + WebSocket
                         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      HAUPT-API-SERVER (api.py – Port 8101)                      │
+│      HAUPT-API-SERVER (api.py – Port 5037)                      │
 │                                                                  │
 │  ├─ REST-Endpunkte (CRUD: User, Marker, Missions, Chat, …)     │
 │  ├─ Authentifizierung (JWT Token, Sessions, SHA-256 Hashing)    │
@@ -68,7 +68,7 @@
 
 | Port | Dienst | Zweck |
 |------|--------|-------|
-| **8101** | Haupt-API-Server (api.py) | REST API + Statische Dateien + WebSocket-Fallback |
+| **5037** | Haupt-API-Server (api.py) | REST API + Statische Dateien + WebSocket-Fallback |
 | **8102** | Daten-Server (data_server.py) | WebSocket /ws + HTTP /api/broadcast, /api/health, /api/status |
 
 ---
@@ -118,7 +118,7 @@
 
 ### Beispiel: Benutzer erstellt Kartenmarker
 
-1. Browser → `POST /api/map_markers` → Haupt-API (Port 8101)
+1. Browser → `POST /api/map_markers` → Haupt-API (Port 5037)
 2. Haupt-API speichert in SQLite-Datenbank
 3. Haupt-API ruft `broadcast_websocket_update()` auf
 4. Falls Daten-Server läuft:
@@ -191,8 +191,8 @@
 
 | # | Problem | Datei | Zeilen | Fix |
 |---|---------|-------|--------|-----|
-| 1 | **Port-Konflikt:** data_server.py startete auf Port 8101, gleich wie Haupt-API. data_server_manager (api.py) erwartete Port 8102. | data_server.py:40 | `DATA_SERVER_PORT = 8101` → `8102` | ✅ Behoben |
-| 2 | **WebSocket-Log zeigte falschen Port** | api.py:782 | `ws://127.0.0.1:8101/ws` → `8102` | ✅ Behoben |
+| 1 | **Port-Konflikt:** data_server.py startete auf Port 5037, gleich wie Haupt-API. data_server_manager (api.py) erwartete Port 8102. | data_server.py:40 | `DATA_SERVER_PORT = 5037` → `8102` | ✅ Behoben |
+| 2 | **WebSocket-Log zeigte falschen Port** | api.py:782 | `ws://127.0.0.1:5037/ws` → `8102` | ✅ Behoben |
 | 3 | **MeshtasticNode: nicht existierende Attribute** `mesh_id`, `name`, `callsign`, `device` verwendet statt `long_name`, `short_name`, `hardware_model` | api.py:650-670 | Attribute korrigiert | ✅ Behoben |
 | 4 | **MapMarker.timestamp existiert nicht** – korrekt ist `created_at` | api.py:663 | `marker.timestamp` → `marker.created_at` | ✅ Behoben |
 | 5 | **MapMarker.unit_id und .status existieren nicht** – müssen über `data` JSON-Feld abgefragt werden | api.py:1453-1467 | Filter und Zugriff über `data` JSON korrigiert | ✅ Behoben |

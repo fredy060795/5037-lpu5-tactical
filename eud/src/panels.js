@@ -670,7 +670,7 @@ async function networkPanel(msg = null) {
         <button class="btn small danger" data-net="del" title="Entfernen"><i class="fas fa-times"></i></button>
       </li>`).join('')}</ul>` : '<div class="muted">Noch keine Server – QR-Code scannen oder unten eintragen.</div>'}
     <h3>Anmelden</h3>
-    <label>Server<input id="net-url" inputmode="url" autocapitalize="off" placeholder="https://192.168.8.10:8101" value="${escapeHtml(p.url || '')}"></label>
+    <label>Server<input id="net-url" inputmode="url" autocapitalize="off" placeholder="https://192.168.8.10:5037" value="${escapeHtml(p.url || '')}"></label>
     <label>Benutzer<input id="net-user" autocapitalize="off" autocomplete="username" value="${escapeHtml(p.user || '')}"></label>
     <label>Passwort<input id="net-pass" type="password" autocomplete="current-password"></label>
     <div class="row"><button class="btn primary grow" id="net-login"><i class="fas fa-plug"></i> Verbinden</button>

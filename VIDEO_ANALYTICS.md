@@ -1,7 +1,7 @@
 # Videoanalyse (YOLOv8) – `video_analytics.py`
 
 Bringt die Erkennung aus YOLO_V8 / ARGUS in den LPU5-Server. Verwaltung im
-Browser: **`https://<server>:8101/video_analytics.html`** (nach Anmeldung in LPU5).
+Browser: **`https://<server>:5037/video_analytics.html`** (nach Anmeldung in LPU5).
 
 ## Installation
 

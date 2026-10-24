@@ -6270,7 +6270,7 @@
       h += '<input type="text" id="nw-inp-name" placeholder="Server Name (z.B. HQ Alpha)" class="nw-input">';
       h += '<input type="text" id="nw-inp-host" placeholder="Host / IP Adresse (z.B. 192.168.1.10)" class="nw-input">';
       h += '<div class="nw-input-row">';
-      h += '<input type="number" id="nw-inp-port" placeholder="Port (z.B. 8101)" class="nw-input" min="1" max="65535">';
+      h += '<input type="number" id="nw-inp-port" placeholder="Port (z.B. 5037)" class="nw-input" min="1" max="65535">';
       h += '<select id="nw-inp-proto" class="nw-input">';
       h += '<option value="https">HTTPS (SSL)</option>';
       h += '<option value="http">HTTP</option>';
@@ -6605,7 +6605,7 @@
             // Server info present – prompt for Callsign + Password (self-certification)
             _teamEnsureCredentials(function(callsign, password) {
               var host = data.host || '';
-              var port = data.port ? String(data.port) : '8101';
+              var port = data.port ? String(data.port) : '5037';
               var protocol = data.protocol || 'https';
               var url = _nwBuildUrl(protocol, host, port);
 
@@ -6617,7 +6617,7 @@
                 members: [callsign],
                 joined_at: new Date().toISOString(),
                 host: host,
-                port: data.port || 8101,
+                port: data.port || 5037,
                 protocol: protocol,
                 ssl: !!data.ssl
               };
@@ -6709,7 +6709,7 @@
             _nwShowMsg('Ungültiger COT Mesh QR-Code: Host oder Master-Key fehlt.', 'error');
             return;
           }
-          var port = data.port ? String(data.port) : '8101';
+          var port = data.port ? String(data.port) : '5037';
           var protocol = data.protocol || 'https';
           var name = data.name || 'COT Mesh Server';
           var cotTcpPort = data.cot_tcp_port || 8088;
@@ -7150,7 +7150,7 @@
           h += '<div class="team-info-label">Host / IP</div>';
           h += '<div class="team-info-value" style="font-size:0.82em;color:#3498db;word-break:break-all;">';
           h += '<i class="fas fa-network-wired" style="margin-right:6px;"></i>';
-          h += _teamEsc((team.protocol || 'https') + '://' + team.host + ':' + (team.port || 8101));
+          h += _teamEsc((team.protocol || 'https') + '://' + team.host + ':' + (team.port || 5037));
           h += '</div></div>';
         } else {
           h += '<div class="team-info-value" style="color:#f39c12;"><i class="fas fa-broadcast-tower" style="margin-right:6px;"></i>COT Only (kein Server)</div>';
@@ -7236,7 +7236,7 @@
           return r.json();
         }).then(function(info) {
           teamData.host = info.local_ip || '';
-          teamData.port = info.port || 8101;
+          teamData.port = info.port || 5037;
           teamData.protocol = info.protocol || 'https';
           teamData.ssl = !!info.ssl;
           teamData.cot_tcp_port = info.cot_tcp_port || 8088;
@@ -7303,7 +7303,7 @@
       // Include server connection info so scanners can find this host
       if (team.host) {
         qrData.host = team.host;
-        qrData.port = team.port || 8101;
+        qrData.port = team.port || 5037;
         qrData.protocol = team.protocol || 'https';
         qrData.ssl = !!team.ssl;
         if (team.cot_tcp_port) qrData.cot_tcp_port = team.cot_tcp_port;
@@ -7357,7 +7357,7 @@
       // Include server connection info so scanners can find this host
       if (srv.team_data.host) {
         qrData.host = srv.team_data.host;
-        qrData.port = srv.team_data.port || 8101;
+        qrData.port = srv.team_data.port || 5037;
         qrData.protocol = srv.team_data.protocol || 'https';
         qrData.ssl = !!srv.team_data.ssl;
         if (srv.team_data.cot_tcp_port) qrData.cot_tcp_port = srv.team_data.cot_tcp_port;

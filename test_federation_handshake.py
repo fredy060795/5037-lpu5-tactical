@@ -42,11 +42,11 @@ class TestFederationHandshakeFlow(unittest.TestCase):
 
         # ── Server A generates its key pair and info ─────────────────
         priv_a, pub_a = load_or_generate_server_keypair(self.dir_a)
-        info_a = get_server_info(self.dir_a, name="Server-A", url="https://a.local:8101")
+        info_a = get_server_info(self.dir_a, name="Server-A", url="https://a.local:5037")
 
         # ── Server B generates its key pair and info ─────────────────
         priv_b, pub_b = load_or_generate_server_keypair(self.dir_b)
-        info_b = get_server_info(self.dir_b, name="Server-B", url="https://b.local:8101")
+        info_b = get_server_info(self.dir_b, name="Server-B", url="https://b.local:5037")
 
         # ── Phase 1: Server A sends init request to Server B ─────────
         challenge_from_a = generate_challenge()

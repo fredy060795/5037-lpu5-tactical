@@ -9,7 +9,7 @@ TOC startet den Server, alle anderen Arbeitsplätze, Tablets und Handys im selbe
           TOC-WLAN
  ┌──────────────────────────────────────────────────────────┐
  │  LPU5-Server (ein PC)        Arbeitsplätze (Browser)      │
- │  https://<IP>:8101  ◄──────  Hauptansicht /index.html     │
+ │  https://<IP>:5037  ◄──────  Hauptansicht /index.html     │
  │   ├ Lagebild, Chat, Missionen                            │
  │   ├ Kartenkacheln /tiles  (offline-Cache, MBTiles)        │
  │   ├ Videoanalyse (YOLOv8)   EUDs (App / PWA /eud/)        │
@@ -25,27 +25,31 @@ TOC startet den Server, alle anderen Arbeitsplätze, Tablets und Handys im selbe
 |---|---|
 | 1 | Python 3.10+ installieren, Ordner entpacken |
 | 2 | **`start_lpu5.bat` einmalig als Administrator** ausführen (gibt die Ports in der Windows-Firewall frei, installiert Pakete) – danach normal starten |
-| 3 | Das Fenster zeigt die Adresse für alle Geräte (`https://<IP>:8101/`) und einen QR-Code; der Browser öffnet sich |
+| 3 | Das Fenster zeigt die Adresse für alle Geräte (`https://<IP>:5037/`) und einen QR-Code; der Browser öffnet sich |
 | 4 | Erste Anmeldung `administrator` / `password` → **Passwortwechsel wird erzwungen** |
 | 5 | Optional `install_autostart.bat` – Server startet bei der Anmeldung automatisch |
 
 Linux / Raspberry Pi: `./start_lpu5.sh`. Weitere Arbeitsplätze: nur Browser öffnen, oder
 `start_lpu5_client.bat <Server-IP>`.
 
-Ports: 8101 (Web/API), 8088 TCP + 4242 UDP + 6969 Multicast (CoT/ATAK), 8089 (TLS-CoT),
+Ports: 5037 (Web/API), 8088 TCP + 4242 UDP + 6969 Multicast (CoT/ATAK), 8089 (TLS-CoT),
 8080 (Marti/Data Packages).
+
+**Web-Port ändern** (Standard 5037): vor dem Start `set LPU5_PORT=xxxx` (Windows) bzw.
+`LPU5_PORT=xxxx ./start_lpu5.sh`, oder dauerhaft in `config.json`: `"port": xxxx`.
+Die Start-Skripte geben den Port in der Windows-Firewall frei.
 
 ### Zertifikat (HTTPS)
 Der Server erzeugt eine eigene **LPU5-Root-CA**. Browser geben Kamera, Bluetooth und
 Offline-Modus nur für vertrauenswürdige HTTPS-Seiten frei.
 - **LPU5-App:** übernimmt das Zertifikat beim ersten Verbinden automatisch (Fingerabdruck
   einmal bestätigen; der Fingerabdruck steht beim Serverstart in der Konsole).
-- **Browser/PWA:** Zertifikat `https://<IP>:8101/lpu5-ca.crt` (iOS: `/lpu5-ca.mobileconfig`)
+- **Browser/PWA:** Zertifikat `https://<IP>:5037/lpu5-ca.crt` (iOS: `/lpu5-ca.mobileconfig`)
   installieren – die PWA lädt es beim ersten Verbinden selbst herunter und zeigt die Schritte.
 
 ## 2. Feldgerät (EUD)
 
-App (Android-APK / iOS) aus GitHub Actions oder PWA unter `https://<IP>:8101/eud/`.
+App (Android-APK / iOS) aus GitHub Actions oder PWA unter `https://<IP>:5037/eud/`.
 Details: [eud/README.md](eud/README.md).
 
 **Bedienung** wie in der Feldansicht, ausgelegt für quer gehaltene Handys:

@@ -3,6 +3,9 @@ chcp 65001 >nul
 cd /d "%~dp0"
 setlocal enabledelayedexpansion
 
+REM Web port of LPU5 (browser, EUD app). Change with: set LPU5_PORT=xxxx
+if not defined LPU5_PORT set "LPU5_PORT=5037"
+
 echo.
 echo ========================================
 echo   LPU5 TACTICAL TRACKER
@@ -11,25 +14,42 @@ echo ========================================
 echo.
 
 REM ── Detect a working Python command ──────────────────────────────────────
+REM Prefer a Python version for which all packages exist (Meshtastic, Whisper,
+REM YOLO). The newest Python often has no packages yet. Override with e.g.
+REM   set LPU5_PYTHON=py -3.12
 set "PYTHON_CMD="
-where py >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3"
-) else (
-    where python3 >nul 2>&1
+if defined LPU5_PYTHON set "PYTHON_CMD=%LPU5_PYTHON%"
+if not defined PYTHON_CMD (
+    where py >nul 2>&1
     if not errorlevel 1 (
-        set "PYTHON_CMD=python3"
+        for %%V in (3.13 3.12 3.14 3.11) do (
+            if not defined PYTHON_CMD (
+                py -%%V -c "import sys" >nul 2>&1
+                if not errorlevel 1 set "PYTHON_CMD=py -%%V"
+            )
+        )
+    )
+)
+if not defined PYTHON_CMD (
+    where py >nul 2>&1
+    if not errorlevel 1 (
+        set "PYTHON_CMD=py -3"
     ) else (
-        where python >nul 2>&1
+        where python3 >nul 2>&1
         if not errorlevel 1 (
-            set "PYTHON_CMD=python"
+            set "PYTHON_CMD=python3"
+        ) else (
+            where python >nul 2>&1
+            if not errorlevel 1 (
+                set "PYTHON_CMD=python"
+            )
         )
     )
 )
 
 if "!PYTHON_CMD!" == "" (
     echo [ERROR] Python 3 is not installed or not in PATH.
-    echo [ERROR] Please install Python 3.8 or higher from https://www.python.org/downloads/
+    echo [ERROR] Please install Python 3.13 from https://www.python.org/downloads/
     pause
     exit /b 1
 )
@@ -44,7 +64,14 @@ if errorlevel 1 (
 )
 
 for /f "tokens=2 delims= " %%V in ('!PYTHON_CMD! --version 2^>^&1') do set "PY_VER=%%V"
+for /f "delims=" %%V in ('!PYTHON_CMD! -c "import sys;print(*sys.version_info[:2],sep='.')"') do set "PY_MM=%%V"
 echo [INFO] Python version: !PY_VER!  (command: !PYTHON_CMD!)
+!PYTHON_CMD! -c "import sys; exit(0 if sys.version_info < (3,15) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Python !PY_MM! is newer than the versions LPU5 is tested with.
+    echo [WARN] Some packages ^(Meshtastic, Whisper, YOLO^) may not exist for it yet.
+    echo [WARN] Recommended: install Python 3.13 in addition - it is then used automatically.
+)
 
 REM Warning if local meshtastic.py shadows package imports
 if exist "meshtastic.py" (
@@ -54,6 +81,17 @@ if exist "meshtastic.py" (
 
 REM ── Virtual environment setup ────────────────────────────────────────────
 set "VENV_DIR=.venv"
+
+REM Recreate the virtualenv when it was made with another Python version
+REM (e.g. first created with a too new Python) or when it is broken.
+if exist "%VENV_DIR%\Scripts\python.exe" (
+    set "VENV_MM="
+    for /f "delims=" %%V in ('call "%VENV_DIR%\Scripts\python.exe" -c "import sys;print(*sys.version_info[:2],sep='.')" 2^>nul') do set "VENV_MM=%%V"
+    if not "!VENV_MM!" == "!PY_MM!" (
+        echo [*] Virtual environment uses Python "!VENV_MM!" instead of !PY_MM! - recreating .venv ...
+        rmdir /s /q "%VENV_DIR%"
+    )
+)
 
 REM Create virtualenv if not exists (always, regardless of SKIP_UPDATE)
 if not exist "%VENV_DIR%\Scripts\python.exe" (
@@ -96,6 +134,17 @@ if errorlevel 1 (
 )
 echo [OK] Core dependencies installed
 
+echo [*] Installing Meshtastic support ^(USB gateway^) ...
+pip install "meshtastic>=2.7.7" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] meshtastic could not be installed for Python !PY_MM!.
+    echo [WARN] The server starts without the Meshtastic USB gateway.
+    echo [WARN] Fix: install Python 3.13, delete the .venv folder and start again,
+    echo [WARN]      or later: pip install meshtastic
+) else (
+    echo [OK] Meshtastic support installed
+)
+
 echo [*] Installing optional SDR dependencies: pyrtlsdr, numpy ...
 pip install "pyrtlsdr>=0.3.0" "numpy>=1.24.0" >nul 2>&1
 if errorlevel 1 (
@@ -110,7 +159,7 @@ echo [*] Installing optional packages: video analytics, radio transcription, til
 pip install "opencv-python-headless>=4.8" "Pillow>=10.2" "scipy>=1.12" "faster-whisper>=1.1" "sounddevice>=0.5" >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Some optional packages could not be installed ^(video analytics / radio transcription^).
-    echo [WARN] Status: https://localhost:8101/api/dependencies/check
+    echo [WARN] Status: https://localhost:!LPU5_PORT!/api/dependencies/check
 ) else (
     echo [OK] Optional packages installed
 )
@@ -165,10 +214,10 @@ if "!SDR_TOOLS_MISSING!"=="1" (
 )
 REM ── End hardware dependency checks ──────────────────────────────────────
 
-REM ── Check if port 8101 is already in use ────────────────────────────────
-netstat -an 2>nul | findstr "LISTENING" | findstr ":8101 " >nul 2>&1
+REM ── Check if the LPU5 port is already in use ────────────────────────────────
+netstat -an 2>nul | findstr "LISTENING" | findstr ":!LPU5_PORT! " >nul 2>&1
 if not errorlevel 1 (
-    echo [WARN] Port 8101 is already in use.
+    echo [WARN] Port !LPU5_PORT! is already in use.
     echo [WARN] Use restart_lpu5.bat to restart the server.
     pause
     exit /b 1
@@ -178,25 +227,27 @@ REM ── Windows firewall: allow the other TOC devices to connect ────
 REM LPU5 is a web application for the whole WLAN. Without these rules Windows
 REM blocks access from other PCs, phones and ATAK devices. Adding rules needs
 REM administrator rights; without them a hint is shown.
-netsh advfirewall firewall show rule name="LPU5 Tactical TCP" >nul 2>&1
+REM The web port has its own rule, so a changed port is opened as well.
+netsh advfirewall firewall show rule name="LPU5 Tactical Web !LPU5_PORT!" >nul 2>&1
 if errorlevel 1 (
-    netsh advfirewall firewall add rule name="LPU5 Tactical TCP" dir=in action=allow protocol=TCP localport=8101,8088,8080,8089 >nul 2>&1
+    netsh advfirewall firewall add rule name="LPU5 Tactical Web !LPU5_PORT!" dir=in action=allow protocol=TCP localport=!LPU5_PORT! >nul 2>&1
+    netsh advfirewall firewall add rule name="LPU5 Tactical TAK" dir=in action=allow protocol=TCP localport=8088,8080,8089 >nul 2>&1
     netsh advfirewall firewall add rule name="LPU5 Tactical UDP" dir=in action=allow protocol=UDP localport=4242,6969 >nul 2>&1
-    netsh advfirewall firewall show rule name="LPU5 Tactical TCP" >nul 2>&1
+    netsh advfirewall firewall show rule name="LPU5 Tactical Web !LPU5_PORT!" >nul 2>&1
     if errorlevel 1 (
         echo [WARN] Firewall-Freigabe nicht moeglich ^(keine Administratorrechte^).
         echo [WARN] Andere Geraete im WLAN koennen LPU5 evtl. nicht erreichen.
         echo [WARN] Einmalig: Rechtsklick auf start_lpu5.bat - "Als Administrator ausfuehren".
     ) else (
-        echo [OK] Windows-Firewall: Ports 8101, 8088, 8080, 8089 TCP und 4242, 6969 UDP freigegeben
+        echo [OK] Windows-Firewall: Ports !LPU5_PORT!, 8088, 8080, 8089 TCP und 4242, 6969 UDP freigegeben
     )
 ) else (
-    echo [OK] Windows-Firewall-Regeln fuer LPU5 vorhanden
+    echo [OK] Windows-Firewall-Regeln fuer LPU5 vorhanden ^(Port !LPU5_PORT!^)
 )
 
 REM ── Start server ─────────────────────────────────────────────────────────
 echo.
-echo [*] Starting server (api.py)...
+echo [*] Starting server ^(api.py^) on port !LPU5_PORT! ...
 echo [*] Press CTRL+C to stop
 echo.
 python api.py

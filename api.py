@@ -287,6 +287,26 @@ def get_local_ip():
     logger.warning("Could not detect local network IP, falling back to 127.0.0.1")
     return primary_ip, []
 
+# Web/API port of LPU5 (browser, EUD app, QR codes). Default 5037; change it
+# with the environment variable LPU5_PORT or "port" in config.json.
+def _configured_port() -> int:
+    for raw in (os.environ.get("LPU5_PORT"), None):
+        if raw is None:
+            try:
+                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8") as f:
+                    raw = (json.load(f) or {}).get("port")
+            except Exception:
+                raw = None
+        try:
+            if raw and 1 <= int(raw) <= 65535:
+                return int(raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid LPU5 port %r – using 5037", raw)
+    return 5037
+
+
+SERVER_PORT = _configured_port()
+
 # JWT settings (development use only)
 import security as _security
 # Per-installation secret (secret.key, not in git) – the previous key was
@@ -6636,12 +6656,12 @@ def get_server_info():
         "status": "ok",
         "local_ip": local_ip,
         "all_detected_ips": all_ips,
-        "port": 8101,
+        "port": SERVER_PORT,
         "protocol": protocol,
         "ssl": use_ssl,
         "cot_tcp_port": cot_tcp_port,
         "cot_udp_port": cot_udp_port,
-        "base_url": f"{protocol}://{local_ip}:8101",
+        "base_url": f"{protocol}://{local_ip}:{SERVER_PORT}",
         "timestamp": datetime.now().isoformat()
     }
 
@@ -6737,7 +6757,7 @@ def api_qr_create(data: dict = Body(...), request: Request = None, db: Session =
         cert_file = os.path.join(base_path, "cert.pem")
         key_file = os.path.join(base_path, "key.pem")
         protocol = "https" if (os.path.exists(cert_file) and os.path.exists(key_file)) else "http"
-        qr_url = f"{protocol}://{local_ip}:8101/qr/{token}"
+        qr_url = f"{protocol}://{local_ip}:{SERVER_PORT}/qr/{token}"
 
     png_b64 = None
     if generate_png and qrcode:
@@ -6813,7 +6833,7 @@ def api_qr_cot_mesh(data: dict = Body(...), request: Request = None, db: Session
         logger.info("="*60)
     except Exception:
         pass
-    server_port = 8101
+    server_port = SERVER_PORT
 
     # Read COT listener ports from config
     cfg = load_json("config") or {}
@@ -6919,7 +6939,7 @@ def api_qr_join_create(request: Request = None):
     key_file = os.path.join(base_path, "key.pem")
     use_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
     protocol = "https" if use_ssl else "http"
-    server_port = 8101
+    server_port = SERVER_PORT
 
     qr_payload = {
         "type": "join",
@@ -8061,7 +8081,7 @@ def api_tak_logins_qr(data: dict = Body(default={}), request: Request = None):
         cert_file = os.path.join(base_path, "cert.pem")
         key_file = os.path.join(base_path, "key.pem")
         protocol = "https" if (os.path.exists(cert_file) and os.path.exists(key_file)) else "http"
-        caller_base = f"{protocol}://{local_ip}:8101"
+        caller_base = f"{protocol}://{local_ip}:{SERVER_PORT}"
     tak_token = _get_tak_qr_token()
     claim_url = f"{caller_base}/tak_login.html?tak_token={tak_token}"
 
@@ -13842,7 +13862,7 @@ def federation_sync_status(current_user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Automatic federation handshake  (connect-back via TCP to port 8101)
+# Automatic federation handshake  (connect-back via TCP to the LPU5 web port)
 # ---------------------------------------------------------------------------
 # When Server B registers Server A (e.g. via QR code), Server A might not
 # know about Server B yet.  The automatic handshake solves this:
@@ -14041,7 +14061,7 @@ def federation_handshake_complete(
 def _federation_auto_handshake(peer_url: str, peer_server_id: str):
     """
     Background task: perform a full bidirectional handshake with a remote
-    server via TCP (HTTP on port 8101).
+    server via TCP (HTTP on the LPU5 web port).
 
     Steps
     -----
@@ -14682,7 +14702,7 @@ if __name__ == "__main__":
         logger.info(f"  *** WLAN IP (192.168.8.x) DETECTED: {local_ip} ***")
         logger.info(f"  *** Use this IP to access from your mobile device! ***")
     
-    logger.info(f"  Server will bind to: 0.0.0.0:8101 (all interfaces)")
+    logger.info(f"  Server will bind to: 0.0.0.0:{SERVER_PORT} (all interfaces)")
     
     # SSL/HTTPS Status
     if use_ssl:
@@ -14695,8 +14715,8 @@ if __name__ == "__main__":
         logger.info("  To enable HTTPS: Generate cert.pem and key.pem in the project root")
     
     logger.info(f"  Access URLs:")
-    logger.info(f"    - From this device: {protocol}://127.0.0.1:8101/landing.html")
-    logger.info(f"    - From network:     {protocol}://{local_ip}:8101/landing.html")
+    logger.info(f"    - From this device: {protocol}://127.0.0.1:{SERVER_PORT}/landing.html")
+    logger.info(f"    - From network:     {protocol}://{local_ip}:{SERVER_PORT}/landing.html")
     
     # Additional access URLs for each detected IP (avoid duplicates)
     if all_detected_ips:
@@ -14704,22 +14724,22 @@ if __name__ == "__main__":
         if alternative_ips:
             logger.info(f"  Alternative Network URLs:")
             for ip in alternative_ips:
-                logger.info(f"    - {protocol}://{ip}:8101/landing.html")
+                logger.info(f"    - {protocol}://{ip}:{SERVER_PORT}/landing.html")
     
     logger.info("="*60)
 
     # LPU5 is a web application: every device in the TOC WLAN opens it in the
     # browser. Print the address prominently (plus QR code for phones) and open
     # the browser on this PC.
-    _web_url = f"{protocol}://{local_ip}:8101/"
+    _web_url = f"{protocol}://{local_ip}:{SERVER_PORT}/"
     print("\n" + "#" * 64)
     print("#  LPU5 TACTICAL – WEB-ANWENDUNG LÄUFT")
     print("#")
     print(f"#  Im TOC-WLAN im Browser öffnen:   {_web_url}")
-    print(f"#  Feldgerät / Handy (EUD):         {protocol}://{local_ip}:8101/eud/")
+    print(f"#  Feldgerät / Handy (EUD):         {protocol}://{local_ip}:{SERVER_PORT}/eud/")
     print(f"#  ATAK/WinTAK:  TCP {local_ip}:8088  (Verbindungspaket im Admin-Bereich)")
     if use_ssl:
-        print(f"#  Zertifikat für Geräte:           {protocol}://{local_ip}:8101/lpu5-ca.crt")
+        print(f"#  Zertifikat für Geräte:           {protocol}://{local_ip}:{SERVER_PORT}/lpu5-ca.crt")
     print("#  Dieses Fenster offen lassen – Schließen beendet den Server.")
     print("#" * 64)
     try:
@@ -14736,7 +14756,7 @@ if __name__ == "__main__":
             import webbrowser
             time.sleep(3)
             try:
-                webbrowser.open(f"{protocol}://127.0.0.1:8101/")
+                webbrowser.open(f"{protocol}://127.0.0.1:{SERVER_PORT}/")
             except Exception:
                 pass
         threading.Thread(target=_open_browser, daemon=True).start()
@@ -14746,7 +14766,7 @@ if __name__ == "__main__":
         uvicorn.run(
             app, 
             host="0.0.0.0", 
-            port=8101, 
+            port=SERVER_PORT, 
             log_level="warning",
             ssl_certfile=cert_file,
             ssl_keyfile=key_file,
@@ -14758,7 +14778,7 @@ if __name__ == "__main__":
         uvicorn.run(
             app,
             host="0.0.0.0",
-            port=8101,
+            port=SERVER_PORT,
             log_level="warning",
             timeout_keep_alive=300,
             timeout_graceful_shutdown=60
