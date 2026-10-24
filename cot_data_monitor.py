@@ -28,8 +28,8 @@ Usage
     python cot_data_monitor.py --listen --web --web-port 9090
 
     # Monitor via the LPU5 API (when the API is already running):
-    python cot_data_monitor.py --api-url http://127.0.0.1:8101
-    python cot_data_monitor.py --api-url http://127.0.0.1:8101 --web
+    python cot_data_monitor.py --api-url http://127.0.0.1:5037
+    python cot_data_monitor.py --api-url http://127.0.0.1:5037 --web
 
     # --web alone auto-detects a running API; falls back to --listen:
     python cot_data_monitor.py --web
@@ -764,7 +764,7 @@ class LPU5WebSocketMonitor(threading.Thread):
     raw CoT data.
     """
 
-    def __init__(self, api_url: str = "ws://127.0.0.1:8101/ws",
+    def __init__(self, api_url: str = "ws://127.0.0.1:5037/ws",
                  on_event=None):
         super().__init__(daemon=True)
         self.api_url = api_url
@@ -847,7 +847,7 @@ class LPU5APIMonitor(threading.Thread):
     never conflicts with the API's own ``CoTListenerService``.
     """
 
-    def __init__(self, api_url: str = "http://127.0.0.1:8101",
+    def __init__(self, api_url: str = "http://127.0.0.1:5037",
                  on_event=None):
         super().__init__(daemon=True)
         self.api_url = api_url.rstrip("/")
@@ -1349,11 +1349,11 @@ def main():
               %(prog)s --tak-host 192.168.1.100 --types meshtastic_node,node,gateway
 
               # Monitor via LPU5 WebSocket (processed events):
-              %(prog)s --ws ws://127.0.0.1:8101/ws
+              %(prog)s --ws ws://127.0.0.1:5037/ws
 
               # Monitor via running LPU5 API (no port conflicts):
-              %(prog)s --api-url http://127.0.0.1:8101
-              %(prog)s --api-url http://127.0.0.1:8101 --web
+              %(prog)s --api-url http://127.0.0.1:5037
+              %(prog)s --api-url http://127.0.0.1:5037 --web
 
               # Start with web UI for graphical monitoring & correction:
               %(prog)s --tak-host 192.168.1.100 --web
@@ -1386,11 +1386,11 @@ def main():
 
     g_ws = parser.add_argument_group("LPU5 WebSocket monitor")
     g_ws.add_argument("--ws", metavar="URL",
-                      help="LPU5 WebSocket URL (e.g. ws://127.0.0.1:8101/ws)")
+                      help="LPU5 WebSocket URL (e.g. ws://127.0.0.1:5037/ws)")
 
     g_api = parser.add_argument_group("LPU5 API monitor (use when API is already running)")
     g_api.add_argument("--api-url", metavar="URL",
-                       help="LPU5 API base URL (e.g. http://127.0.0.1:8101). "
+                       help="LPU5 API base URL (e.g. http://127.0.0.1:5037). "
                             "Connects to the API's built-in CoT monitor SSE "
                             "stream instead of opening local listeners that "
                             "would conflict with the running API.")
@@ -1426,7 +1426,7 @@ def main():
             # --web alone: try to auto-detect a running LPU5 API and use its
             # SSE stream.  This avoids the port conflict that would otherwise
             # crash the monitor when the API already occupies TCP 8088 / UDP 4242.
-            _default_api = "http://127.0.0.1:8101"
+            _default_api = "http://127.0.0.1:5037"
             try:
                 import urllib.request
                 resp = urllib.request.urlopen(

@@ -1246,7 +1246,7 @@
         const infoEl = document.getElementById('cotMeshServerInfo');
         if (infoEl) {
           document.getElementById('cotMeshServerUrl').textContent =
-            (payload.protocol || 'https') + '://' + (payload.host || '?') + ':' + (payload.port || 8101);
+            (payload.protocol || 'https') + '://' + (payload.host || '?') + ':' + (payload.port || 5037);
           document.getElementById('cotMeshTcpPort').textContent = payload.cot_tcp_port || '8088';
           document.getElementById('cotMeshUdpPort').textContent = payload.cot_udp_port || '4242';
           infoEl.style.display = '';

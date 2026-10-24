@@ -36,15 +36,15 @@ export function parseServerQr(text) {
     const protocol = data.protocol || (data.ssl === false ? 'http' : 'https');
     if (data.type === 'join') {
       if (!data.host) throw new Error('Join-QR ohne Serveradresse');
-      return { kind: 'join', name: `LPU5 ${data.host}`, url: buildUrl(protocol, data.host, port || '8101'), user: '', qrToken: null };
+      return { kind: 'join', name: `LPU5 ${data.host}`, url: buildUrl(protocol, data.host, port || '5037'), user: '', qrToken: null };
     }
     if (data.type === 'cot_team') {
       if (!data.host) throw new Error(`Team „${data.team_name || ''}“ ohne Server (nur COT) – in der EUD-App nicht nutzbar`);
-      return { kind: 'team', name: `Team ${data.team_name || data.team_id}`, url: buildUrl(protocol, data.host, port || '8101'), user: '', qrToken: null, team: data.team_name || '' };
+      return { kind: 'team', name: `Team ${data.team_name || data.team_id}`, url: buildUrl(protocol, data.host, port || '5037'), user: '', qrToken: null, team: data.team_name || '' };
     }
     if (data.type === 'cot_mesh_login') {
       if (!data.host) throw new Error('COT-Mesh-QR ohne Serveradresse');
-      return { kind: 'cot_mesh', name: data.name || 'COT Mesh Server', url: buildUrl(protocol, data.host, port || '8101'), user: '', qrToken: null };
+      return { kind: 'cot_mesh', name: data.name || 'COT Mesh Server', url: buildUrl(protocol, data.host, port || '5037'), user: '', qrToken: null };
     }
     let url = data.url || data.server_url || '';
     if (!url && data.host) url = buildUrl(protocol, data.host, port);
@@ -58,7 +58,7 @@ export function parseServerQr(text) {
     };
   }
 
-  // Plain link, e.g. https://10.0.0.5:8101/register.html?qr_token=… or …/qr/<token>
+  // Plain link, e.g. https://10.0.0.5:5037/register.html?qr_token=… or …/qr/<token>
   if (/^https?:\/\//i.test(raw)) {
     const u = new URL(raw);
     // /qr/<token> is an invitation QR of the LPU5 admin page (counts uses, may expire).

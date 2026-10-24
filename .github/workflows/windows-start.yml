@@ -51,16 +51,16 @@ jobs:
           $ok = $false
           for ($i = 0; $i -lt 300; $i++) {
             Start-Sleep -Seconds 5
-            $code = & curl.exe -sk -o NUL -w "%{http_code}" https://127.0.0.1:8101/api/tls/info
+            $code = & curl.exe -sk -o NUL -w "%{http_code}" https://127.0.0.1:5037/api/tls/info
             if ($code -eq '200') { $ok = $true; break }
-            $code = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:8101/api/tls/info
+            $code = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:5037/api/tls/info
             if ($code -eq '200') { $ok = $true; break }
             if ($p.HasExited) { Write-Host "start_lpu5.bat exited (code $($p.ExitCode))"; break }
           }
           Write-Host "===== start.log ====="
           Get-Content start.log -Encoding utf8
           if (-not $ok) { Write-Error 'Server did not start'; exit 1 }
-          Write-Host "===== Server answers on port 8101 ====="
+          Write-Host "===== Server answers on port 5037 ====="
           & .venv\Scripts\python.exe --version
-          & curl.exe -sk https://127.0.0.1:8101/api/dependencies/check
+          & curl.exe -sk https://127.0.0.1:5037/api/dependencies/check
           Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force

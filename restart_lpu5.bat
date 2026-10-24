@@ -2,6 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 setlocal
+if not defined LPU5_PORT set "LPU5_PORT=5037"
 
 echo.
 echo ========================================
@@ -30,33 +31,33 @@ for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq python.exe" /FO LIST ^| fi
     )
 )
 
-REM Check if port 8101 is still in use
-netstat -ano | findstr ":8101.*LISTENING" >nul
+REM Check if port %LPU5_PORT% is still in use
+netstat -ano | findstr ":%LPU5_PORT%.*LISTENING" >nul
 if not errorlevel 1 (
-    echo [WARN] Port 8101 is still in use
-    echo [*] Trying to stop all processes on port 8101...
+    echo [WARN] Port %LPU5_PORT% is still in use
+    echo [*] Trying to stop all processes on port %LPU5_PORT%...
     
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8101.*LISTENING"') do (
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%LPU5_PORT%.*LISTENING"') do (
         echo [*] Stopping process: %%a
         taskkill /PID %%a /F >nul 2>&1
     )
 )
 
 REM Wait for port to be released
-echo [*] Waiting for port 8101 to be released...
+echo [*] Waiting for port %LPU5_PORT% to be released...
 timeout /t 3 /nobreak >nul
 
 REM Verify port is free
-netstat -ano | findstr ":8101.*LISTENING" >nul
+netstat -ano | findstr ":%LPU5_PORT%.*LISTENING" >nul
 if not errorlevel 1 (
-    echo [ERROR] Port 8101 is still in use!
+    echo [ERROR] Port %LPU5_PORT% is still in use!
     echo [ERROR] Please check manually:
-    echo [ERROR]   netstat -ano ^| findstr :8101
+    echo [ERROR]   netstat -ano ^| findstr :%LPU5_PORT%
     pause
     exit /b 1
 )
 
-echo [OK] Port 8101 is free
+echo [OK] Port %LPU5_PORT% is free
 echo.
 echo [*] Restarting server...
 echo.

@@ -7254,7 +7254,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
                     Startet das LPU5 Backend lokal. Sie sind automatisch als Admin angemeldet.
                 </div>
                 <div id="localServerInfo" style="display:none; color:#888; font-size:0.8rem; margin-bottom:10px;">
-                    <span style="color:#2ecc71;">●</span> Server läuft auf Port <strong style="color:#d0d0d0;">8101</strong>
+                    <span style="color:#2ecc71;">●</span> Server läuft auf Port <strong style="color:#d0d0d0;">5037</strong>
                 </div>
                 <button id="btnStartServer" onclick="standaloneStartServer()" style="width:100%; padding:10px; background:linear-gradient(135deg,#27ae60,#2ecc71); border:none; color:#fff; font-family:'Courier New',monospace; font-size:0.9rem; font-weight:bold; border-radius:4px; cursor:pointer; text-transform:uppercase;">
                     <i class="fas fa-power-off"></i> Server starten
@@ -7280,7 +7280,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
                 <div id="remoteConnSuccess" style="display:none; background:rgba(39,174,96,0.2); border:1px solid #27ae60; color:#2ecc71; padding:8px; border-radius:4px; font-size:0.8rem; margin-bottom:8px;"></div>
                 <div style="margin-bottom:8px;">
                     <label style="display:block; color:#888; font-size:0.75rem; text-transform:uppercase; margin-bottom:3px;">Server URL</label>
-                    <input type="text" id="remoteServerUrl" placeholder="https://192.168.1.100:8101" style="width:100%; padding:8px; background:#000; border:1px solid #333; color:#fff; font-family:'Courier New',monospace; font-size:0.85rem; border-radius:3px; box-sizing:border-box;">
+                    <input type="text" id="remoteServerUrl" placeholder="https://192.168.1.100:5037" style="width:100%; padding:8px; background:#000; border:1px solid #333; color:#fff; font-family:'Courier New',monospace; font-size:0.85rem; border-radius:3px; box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:8px;">
                     <label style="display:block; color:#888; font-size:0.75rem; text-transform:uppercase; margin-bottom:3px;">Username</label>
@@ -8983,7 +8983,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
             </div>
             <div class="network-info-item">
                 <span class="network-info-label">Port:</span>
-                <span class="network-info-value" id="portDisplay">8101</span>
+                <span class="network-info-value" id="portDisplay">5037</span>
             </div>
             <div class="network-info-item">
                 <span class="network-info-label">Server URL:</span>
@@ -9014,7 +9014,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
 
             <div class="form-group">
                 <label class="form-label">Target Server URL</label>
-                <input type="text" class="form-input" id="forwardingUrl" placeholder="https://example.com:8101" disabled>
+                <input type="text" class="form-input" id="forwardingUrl" placeholder="https://example.com:5037" disabled>
             </div>
 
             <div class="form-group">
@@ -9064,7 +9064,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
 
             <div class="form-group">
                 <label class="form-label">Public Port</label>
-                <input type="number" class="form-input" id="publicPort" placeholder="8101" disabled>
+                <input type="number" class="form-input" id="publicPort" placeholder="5037" disabled>
             </div>
 
             <div class="warning-box">
@@ -9471,7 +9471,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
             </label>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                 <input type="text" id="fedOwnUrlInput"
-                       placeholder="https://mein-server.example.com:8101"
+                       placeholder="https://mein-server.example.com:5037"
                        style="flex:1;min-width:220px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input,#1a1a2e);color:var(--text-main,#eee);font-size:0.9rem;">
                 <button class="btn btn-success btn-sm" onclick="fedSaveOwnUrl()">
                     <i class="fas fa-save"></i> URL speichern
@@ -11334,16 +11334,16 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
                 if (data.status === 'started' || data.status === 'already_running') {
                     _updateServerPanel(true);
                     // Poll until server is ready
-                    _waitForServer('https://127.0.0.1:8101', _SERVER_READY_RETRIES_HTTPS).then(function(ready) {
+                    _waitForServer('https://127.0.0.1:5037', _SERVER_READY_RETRIES_HTTPS).then(function(ready) {
                         if (!ready) {
                             // Try HTTP fallback
-                            _waitForServer('http://127.0.0.1:8101', _SERVER_READY_RETRIES_HTTP).then(function(readyHttp) {
+                            _waitForServer('http://127.0.0.1:5037', _SERVER_READY_RETRIES_HTTP).then(function(readyHttp) {
                                 if (readyHttp) {
-                                    _autoConnectLocalServer('http://127.0.0.1:8101');
+                                    _autoConnectLocalServer('http://127.0.0.1:5037');
                                 }
                             });
                         } else {
-                            _autoConnectLocalServer('https://127.0.0.1:8101');
+                            _autoConnectLocalServer('https://127.0.0.1:5037');
                         }
                     });
                 } else {
@@ -11522,7 +11522,7 @@ td input.notes:focus { border-color: var(--accent); outline: none; }
 
         // Connect to local server UI button
         window.standaloneConnectLocal = function() {
-            var serverUrl = localStorage.getItem('lpu5_server_url') || 'https://127.0.0.1:8101';
+            var serverUrl = localStorage.getItem('lpu5_server_url') || 'https://127.0.0.1:5037';
             _autoConnectLocalServer(serverUrl);
         };
 
@@ -13818,7 +13818,7 @@ window.addEventListener('storage', (e) => {
         const infoEl = document.getElementById('cotMeshServerInfo');
         if (infoEl) {
           document.getElementById('cotMeshServerUrl').textContent =
-            (payload.protocol || 'https') + '://' + (payload.host || '?') + ':' + (payload.port || 8101);
+            (payload.protocol || 'https') + '://' + (payload.host || '?') + ':' + (payload.port || 5037);
           document.getElementById('cotMeshTcpPort').textContent = payload.cot_tcp_port || '8088';
           document.getElementById('cotMeshUdpPort').textContent = payload.cot_udp_port || '4242';
           infoEl.style.display = '';
@@ -13856,7 +13856,7 @@ window.addEventListener('storage', (e) => {
           html += '<img src="data:image/png;base64,' + jq.png_base64 + '" alt="Join QR" width="260" height="260" style="border:2px solid #2ecc71;border-radius:8px;">';
           if (jq.payload) {
             html += '<div style="margin-top:8px;color:#aaa;font-size:0.85em;"><i class="fas fa-server"></i> ' +
-              (jq.payload.protocol || 'https') + '://' + (jq.payload.host || '?') + ':' + (jq.payload.port || 8101) + '</div>';
+              (jq.payload.protocol || 'https') + '://' + (jq.payload.host || '?') + ':' + (jq.payload.port || 5037) + '</div>';
           }
           if (jq.created_at) {
             html += '<div style="margin-top:4px;color:#666;font-size:0.8em;">Erstellt: ' + new Date(jq.created_at).toLocaleString() + '</div>';
@@ -21108,7 +21108,7 @@ async function loadServerInfo() {
         if (response.ok) {
             const data = await response.json();
             document.getElementById('localIpDisplay').textContent = data.local_ip || 'N/A';
-            document.getElementById('portDisplay').textContent = data.port || '8101';
+            document.getElementById('portDisplay').textContent = data.port || '5037';
             document.getElementById('serverUrlDisplay').textContent = data.base_url || 'N/A';
             // Update CoT listener hint with the server's actual local IP
             const hint = document.getElementById('cotListenerHostHint');
@@ -21142,7 +21142,7 @@ async function loadNetworkSettings() {
             // Public IP
             document.getElementById('usePublicIp').checked = networkConfig.usePublicIp || false;
             document.getElementById('publicIp').value = networkConfig.publicIp || '';
-            document.getElementById('publicPort').value = networkConfig.publicPort || '8101';
+            document.getElementById('publicPort').value = networkConfig.publicPort || '5037';
 
             // Security
             document.getElementById('allowedIpRanges').value = networkConfig.allowedIpRanges || '';
@@ -22204,7 +22204,7 @@ async function loadJoinQR() {
                 if (info && jq.payload) {
                     info.innerHTML = '<i class="fas fa-server"></i> ' +
                         (jq.payload.protocol || 'https') + '://' +
-                        (jq.payload.host || '?') + ':' + (jq.payload.port || 8101) +
+                        (jq.payload.host || '?') + ':' + (jq.payload.port || 5037) +
                         (jq.created_at ? ' &nbsp;|&nbsp; Erstellt: ' + new Date(jq.created_at).toLocaleString() : '');
                 }
                 preview.style.display = '';

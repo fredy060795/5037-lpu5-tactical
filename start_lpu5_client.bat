@@ -17,25 +17,26 @@ REM  (Der fruehere isolierte Desktop-Client LPU5.py ist weiterhin per
 REM   "python LPU5.py" startbar, teilt aber KEINE Daten mit dem TOC.)
 REM ======================================================================
 
+if not defined LPU5_PORT set "LPU5_PORT=5037"
 set "HOST=%~1"
 if not "%HOST%"=="" goto open_remote
 
-netstat -an 2>nul | findstr "LISTENING" | findstr ":8101 " >nul 2>&1
+netstat -an 2>nul | findstr "LISTENING" | findstr ":%LPU5_PORT% " >nul 2>&1
 if errorlevel 1 (
     echo [*] LPU5-Server laeuft noch nicht - wird gestartet ...
     start "LPU5 Tactical Server" cmd /k "%~dp0start_lpu5.bat"
     echo [*] Warte auf den Server ...
     for /l %%i in (1,1,60) do (
         timeout /t 2 /nobreak >nul
-        netstat -an 2>nul | findstr "LISTENING" | findstr ":8101 " >nul 2>&1 && goto open_local
+        netstat -an 2>nul | findstr "LISTENING" | findstr ":%LPU5_PORT% " >nul 2>&1 && goto open_local
     )
     echo [WARN] Server antwortet noch nicht - Browser wird trotzdem geoeffnet.
 )
 
 :open_local
-start "" "https://127.0.0.1:8101/"
+start "" "https://127.0.0.1:%LPU5_PORT%/"
 exit /b 0
 
 :open_remote
-start "" "https://%HOST%:8101/"
+start "" "https://%HOST%:%LPU5_PORT%/"
 exit /b 0

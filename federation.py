@@ -181,7 +181,7 @@ def get_server_info(base_path: str, name: Optional[str] = None, url: Optional[st
     ------
     server_id   – stable UUID for this instance
     name        – human-readable server name (defaults to hostname)
-    url         – optional base URL (e.g. https://192.168.1.10:8101)
+    url         – optional base URL (e.g. https://192.168.1.10:5037)
     public_key  – RSA public key in PEM format
     fingerprint – SHA-256 fingerprint of the public key (hex)
     timestamp   – ISO-8601 UTC timestamp of when this info was generated

@@ -17,7 +17,7 @@ A comprehensive tactical tracking system with integrated Meshtastic support for 
 |---|---|---|
 | **EUD-Client** (`eud/`) | Offline-fähiger Feldclient wie ATAK: Offline-Karten & MBTiles, eigener Standort auch bei gesperrtem Bildschirm, MIL-STD-2525-Lagebild, KML/KMZ/GPX/GeoJSON-Overlays, Outbox bei Verbindungsabbruch, Chat, **Meshtastic per Bluetooth ohne Server**, Kamera teilen | [eud/README.md](eud/README.md) |
 | **Android-APK / iOS-App** | Werden von GitHub Actions gebaut (`.github/workflows/eud-build.yml`) | [eud/README.md](eud/README.md#installation-auf-dem-gerät) |
-| **PWA** | Vom Server unter `https://<server>:8101/eud/` – installierbar, offline nutzbar | [eud/README.md](eud/README.md) |
+| **PWA** | Vom Server unter `https://<server>:5037/eud/` – installierbar, offline nutzbar | [eud/README.md](eud/README.md) |
 | **Videoanalyse** | YOLOv8 auf RTSP/HTTP/Datei/Handy-Kameras, Erkennungen als Alarm und Lagemarker (CoT → ATAK) | [VIDEO_ANALYTICS.md](VIDEO_ANALYTICS.md) |
 | **Funk-Mitschrift** | Whisper-Logik aus FunkLog: SDR- oder Funkgeräte-Audio wird mitgeschrieben und dauerhaft protokolliert, live im Funk-Bereich und im EUD | [RADIO_TRANSCRIPTION.md](RADIO_TRANSCRIPTION.md) |
 | **HTTPS/Zertifikat** | Eigene LPU5-Root-CA (`/lpu5-ca.crt`) – nötig, damit Kamera, Bluetooth und Offline-Modus im Browser freigegeben werden | [eud/README.md](eud/README.md#warum-kamera-und-bluetooth-bisher-nicht-gingen--https-zertifikat) |
@@ -80,15 +80,15 @@ The integrated Meshtastic Gateway Service enables real-time hardware connection 
 **Via API:**
 ```bash
 # Start gateway on COM7 (Windows) or /dev/ttyUSB0 (Linux)
-curl -X POST http://localhost:8101/api/gateway/start \
+curl -X POST http://localhost:5037/api/gateway/start \
   -H "Content-Type: application/json" \
   -d '{"port": "COM7", "auto_sync": true, "sync_interval": 300}'
 
 # Check status
-curl http://localhost:8101/api/gateway/status
+curl http://localhost:5037/api/gateway/status
 
 # Stop gateway
-curl -X POST http://localhost:8101/api/gateway/stop
+curl -X POST http://localhost:5037/api/gateway/stop
 ```
 
 **Via UI:**
@@ -112,7 +112,7 @@ python meshtastic_gateway_service.py --list-ports
 ### For iOS Users (PWA)
 1. **Server must be running at HQ** (see Installation below)
 2. On iOS device, open Safari
-3. Navigate to `https://your-hq-ip:8101/pwa/overview.html`
+3. Navigate to `https://your-hq-ip:5037/pwa/overview.html`
 4. Tap Share → Add to Home Screen
 5. Launch app from home screen
 6. Login and start using
@@ -134,10 +134,10 @@ python meshtastic_gateway_service.py --list-ports
 pip install -r requirements.txt
 
 # Run the API server
-uvicorn api:app --host 0.0.0.0 --port 8101 --ssl-keyfile key.pem --ssl-certfile cert.pem
+uvicorn api:app --host 0.0.0.0 --port 5037 --ssl-keyfile key.pem --ssl-certfile cert.pem
 
 # Optional: Start Meshtastic Gateway (for iOS PWA mesh access)
-curl -X POST http://localhost:8101/api/gateway/start \
+curl -X POST http://localhost:5037/api/gateway/start \
   -H "Content-Type: application/json" \
   -d '{"port": "COM7", "auto_sync": true, "sync_interval": 300}'
 ```
@@ -160,7 +160,7 @@ curl -X POST http://localhost:8101/api/gateway/start \
 pip install -r requirements.txt
 
 # Run the server
-uvicorn api:app --host 0.0.0.0 --port 8101 --ssl-keyfile key.pem --ssl-certfile cert.pem
+uvicorn api:app --host 0.0.0.0 --port 5037 --ssl-keyfile key.pem --ssl-certfile cert.pem
 
 # Or use the startup scripts:
 # Linux/Unix/macOS:
@@ -281,7 +281,7 @@ Connect to `/ws` for real-time updates:
 
 ### Example:
 ```javascript
-const ws = new WebSocket('wss://localhost:8101/ws');
+const ws = new WebSocket('wss://localhost:5037/ws');
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'gateway_message') {
@@ -499,7 +499,7 @@ All endpoints require `Authorization: Bearer <token>` unless noted.
 ```bash
 # ── Server A (Field Pi) ──────────────────────────────────────────────────
 TOKEN_A="<jwt_from_server_a>"
-BASE_A="https://192.168.1.10:8101"
+BASE_A="https://192.168.1.10:5037"
 
 # 1. Get Server A's federation info
 curl -sk -H "Authorization: Bearer $TOKEN_A" $BASE_A/api/federation/info
@@ -510,7 +510,7 @@ curl -sk -H "Authorization: Bearer $TOKEN_A" $BASE_A/api/federation/qr -o server
 
 # ── Server B (Web HQ) ────────────────────────────────────────────────────
 TOKEN_B="<jwt_from_server_b>"
-BASE_B="https://192.168.1.20:8101"
+BASE_B="https://192.168.1.20:5037"
 
 # 3. Register Server A on Server B (paste info JSON from step 1)
 curl -sk -X POST -H "Authorization: Bearer $TOKEN_B" \

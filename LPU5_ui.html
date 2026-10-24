@@ -1211,7 +1211,7 @@ function nwRender() {
   h += '<input type="text" id="nw-inp-name" placeholder="Server Name (z.B. HQ Alpha)" class="nw-input">';
   h += '<input type="text" id="nw-inp-host" placeholder="Host / IP Adresse (z.B. 192.168.1.10)" class="nw-input">';
   h += '<div class="nw-input-row">';
-  h += '<input type="number" id="nw-inp-port" placeholder="Port (z.B. 8101)" class="nw-input" min="1" max="65535" value="8101">';
+  h += '<input type="number" id="nw-inp-port" placeholder="Port (z.B. 5037)" class="nw-input" min="1" max="65535" value="5037">';
   h += '<select id="nw-inp-proto" class="nw-input">';
   h += '<option value="https">HTTPS (SSL)</option>';
   h += '<option value="http">HTTP</option>';
@@ -1278,7 +1278,7 @@ function nwClearForm() {
     if (el) el.value = '';
   });
   var portEl = document.getElementById('nw-inp-port');
-  if (portEl) portEl.value = '8101';
+  if (portEl) portEl.value = '5037';
   var protoEl = document.getElementById('nw-inp-proto');
   if (protoEl) protoEl.value = 'https';
 }
@@ -1367,7 +1367,7 @@ function nwEdit(id) {
   var el;
   el = document.getElementById('nw-inp-name'); if (el) el.value = srv.name || '';
   el = document.getElementById('nw-inp-host'); if (el) el.value = srv.host || '';
-  el = document.getElementById('nw-inp-port'); if (el) el.value = srv.port || '8101';
+  el = document.getElementById('nw-inp-port'); if (el) el.value = srv.port || '5037';
   el = document.getElementById('nw-inp-proto'); if (el) el.value = srv.protocol || 'https';
   el = document.getElementById('nw-inp-user'); if (el) el.value = srv.user || '';
   el = document.getElementById('nw-inp-pass'); if (el) el.value = '';

@@ -11,7 +11,7 @@ Why a CA instead of a plain self-signed certificate: phones only grant
 camera, Bluetooth (Web Bluetooth), geolocation and service workers (offline
 PWA) to *trusted* HTTPS origins. Android and iOS accept a user-installed
 certificate as trusted only if it is a CA certificate. Install the CA once on
-each EUD (download from https://<server>:8101/lpu5-ca.crt) and every
+each EUD (download from https://<server>:5037/lpu5-ca.crt) and every
 server certificate generated later is trusted automatically – even after the
 server IP changes.
 
@@ -200,7 +200,7 @@ if __name__ == "__main__":
     primary = hosts[0] if hosts else "localhost"
     if generate_self_signed_cert("cert.pem", "key.pem", primary, hosts[1:]):
         print("Server certificate written to cert.pem / key.pem")
-        print(f"Install {CA_CERT_NAME} (or https://<server>:8101/lpu5-ca.crt) on every EUD as trusted CA.")
+        print(f"Install {CA_CERT_NAME} (or https://<server>:5037/lpu5-ca.crt) on every EUD as trusted CA.")
     else:
         print("Failed to generate certificate", file=sys.stderr)
         sys.exit(1)

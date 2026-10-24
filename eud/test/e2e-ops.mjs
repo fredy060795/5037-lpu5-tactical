@@ -8,7 +8,7 @@ const act = async (pg, a) => {
   await pg.click(`#sidebar-tile-grid [data-action=${a}]`);
 };
 
-const S = process.env.LPU5_SERVER || 'http://127.0.0.1:8101';
+const S = process.env.LPU5_SERVER || 'http://127.0.0.1:5037';
 const b = await chromium.launch();
 const ctx = await b.newContext({ geolocation: { latitude: 52.52, longitude: 13.405, accuracy: 5 }, permissions: ['geolocation'], viewport: { width: 420, height: 900 } });
 const p = await ctx.newPage();
